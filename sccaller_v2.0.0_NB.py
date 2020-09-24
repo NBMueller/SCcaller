@@ -25,21 +25,23 @@
 # v0.0.2, 2016.04.19, fixing bugs - jump mpileup file column not fit problem.
 # v0.0.1, 2016.03, adding likelihood ratio test based on null distribution from the data resampling.
 
+# Standard libraries
 import sys
-import argparse
 import os
+import re
+import time
+import random
+import copy
+import argparse
+import logging
 from subprocess import Popen, PIPE
 import multiprocessing as mp
-import re
 from collections import Counter
 from itertools import compress
-import logging
-import time
+# Additional libraries
 import pysam  # 0.15.1
-import copy
-import random
 import numpy as np
-
+# SCcaller internal libraries
 from libs.BigForewordList import BigForewordList
 from libs.OutLineStruct import OutLineStruct, MULTIPLEGENOTYPE, NOTENOUGHVARIANTS
 
