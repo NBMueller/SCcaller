@@ -21,7 +21,7 @@ Licensed under the GNU Affero General Public License version 3 or later
 #####
 ## DEPENDENCIES
 
-python 2.7
+python 2.7 or 3.X (not working with vcf catalog and bed output)
 
 python modules os, argparse, sys, subprocess, re, collections, itertools, logging, time, functiontools, random, string, math, numpy, multiprocessing, pysam(0.15.1)
 

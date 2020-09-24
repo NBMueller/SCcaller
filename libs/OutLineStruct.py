@@ -13,6 +13,7 @@ class OutLineStruct:
         self.var = var
         self.ref_num = ref_num
         self.var_num = var_num
+        self.total_num = ref_num + var_num
         self.ad = '{},{}'.format(ref_num, var_num)
         self.lh = lh # [Seq.  Noise, Ampl. Artefact/Error, Het. SNV, Hom. SNV]
         self.so = so

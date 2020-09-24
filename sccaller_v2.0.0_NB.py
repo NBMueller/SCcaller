@@ -37,7 +37,6 @@ import logging
 from subprocess import Popen, PIPE
 import multiprocessing as mp
 from collections import Counter
-from itertools import compress
 # Additional libraries
 import pysam  # 0.15.1
 import numpy as np
@@ -47,8 +46,8 @@ from libs.OutLineStruct import OutLineStruct, MULTIPLEGENOTYPE, NOTENOUGHVARIANT
 
 
 if float(sys.version[:3]) != 2.7:
-    print("CRITICAL: Python version must be 2.7!\n")
-    sys.exit(1)
+    print('\nWARNING: Python 3.X not tested for vcf .catalog file (for dbsnp) '
+        'and bed output (instead of vcf)!')
 
 
 # regular expression of indels
@@ -105,9 +104,8 @@ class GoldenHetero:
 
 
     def __str__(self):
-        out_str = '{}:{}\tAD:{},{}' \
+        return '{}:{}\tAD:{},{}' \
             .format(self.name, self.pos, self.refcount, self.altcount)
-        return out_str
 
 
 class PileupDataStruct:
@@ -129,18 +127,16 @@ class PileupDataStruct:
 
 
     def __str__(self):
-        out_str = '{}:{}\tref:{}({}),alt:{}({})' \
+        return '{}:{}\tref:{}({}),alt:{}({})' \
             .format(self.name, self.pos, self.reference_base,
                 self.reference_allele_num, self.variant, self.variant_allele_num)
-        return out_str
+
+
+def compress(l, f):
+    return [j for i, j in enumerate(l) if f[i]]
 
 
 def parse_args():
-    """
-    handle the parameters.
-    :return: argparse.Namespace
-    """
-
     parser = argparse.ArgumentParser(
         prog='SCcaller',
         usage='''\npython {}
@@ -226,7 +222,7 @@ def parse_args():
 
     # check mandatory files
     if args.snp_type == "dbsnp" and args.bulk == "":
-        raise IOError("{}: When choosing dbsnp, --bulk bulk_bamfile is required." \
+        raise IOError("{}: When choosing dbsnp, --bulk file is required." \
             .format(__file__))
     for req_file in (args.bam, args.fasta, args.snp_in):
         if not os.path.exists(req_file):
@@ -289,7 +285,7 @@ def parse_fasta(fasta_file):
                 head = target_len
                 tail = 0
             else:
-                for j in xrange(target_len -1, 0, -1):
+                for j in range(target_len -1, 0, -1):
                     if target[j] != "N":
                         break
                 tail = j + 1 
@@ -300,7 +296,6 @@ def parse_fasta(fasta_file):
 
 
 def parse_indel(indel_str, indel_list_out):
-    # type: (str, list) -> int
     """
     parse indel string, return the indel string and length of indel string
     :param indel_str:indel string (the '+' and '-' in indel string doesn't affect the result)
@@ -309,21 +304,11 @@ def parse_indel(indel_str, indel_list_out):
     >0 return indel string length
     =0 in case of indel and svn
     <0 in case of invalid format of indel
-    eg:
-        rr = []
-        ret = parse_indel("+2AAC",rr)   #it will print:
-        print ret                       #0
-        print rr                        #['+', '2', 'A', 'A']
-
-        rr = []
-        ret = parse_indel("+2AA",rr)    #it will print:
-        print ret                       #4
-        print rr                        #['+', '2', 'A', 'A']
     """
     i = 0
     j = 0
     len_indel_str = len(indel_str)
-    for i in xrange(len_indel_str):
+    for i in range(len_indel_str):
         if indel_str[i] == "+" or indel_str[i] == "-":
             continue
         else:
@@ -333,7 +318,7 @@ def parse_indel(indel_str, indel_list_out):
         return -1
     buf = indel_str[i:]
     len_buf = len(buf)
-    for j in xrange(len_buf):
+    for j in range(len_buf):
         if buf[j].isalpha():
             break
 
@@ -371,7 +356,7 @@ def remove_head_end(pileup):
 
     num_found = 0
     # look for pattern like '^'
-    for i in xrange(len(str1) - 1):
+    for i in range(len(str1) - 1):
         MQ_head = pileup[6][get_head_MQ(str1, i)]
         if str1[i] == "^" and str1[i + 1] != MQ_head:
             num_found += 1
@@ -416,7 +401,7 @@ def compress_read_bases(read_bases, my_filter):
     for i, base in enumerate(read_bases):
         if base == "I":
             my_filter.insert(i, True)
-    return "".join(list(compress(read_bases, my_filter)))
+    return "".join(compress(read_bases, my_filter))
 
 
 def get_reference_variant_allele_num(read_bases):
@@ -445,8 +430,8 @@ def rebuild_read_base_list(read_base_without_i, indel_name_list, indel_count_lis
     read_base_list = []
     read_base_list.extend(list(read_base_without_i))
     tmp = [[indel_name_list[list_index] \
-                for i in xrange(indel_count_list[list_index])]
-            for list_index in xrange(len(indel_count_list))]
+                for i in range(indel_count_list[list_index])]
+            for list_index in range(len(indel_count_list))]
     for i in tmp:
         read_base_list.extend(i)
     return read_base_list
@@ -503,8 +488,6 @@ def read_mpileup(pileup, rm_minvar, min_mapq, rm_mindepth, is_gh, worker_id):
     # filter out alignments that do not meet the requirements of mapQ
     map_q_filter = [ord(i) - PHREDSCORE >= min_mapq for i in pileup[6]]
     read_base_with_i = compress_read_bases(pileup[4], map_q_filter)
-    read_base_with_d = "".join([j if map_q_filter[i] else "D" \
-        for i, j in enumerate(pileup[4])])
     read_base_without_i = re.sub("I", "", read_base_with_i)
 
     if len(read_base_without_i) < rm_mindepth:
@@ -527,6 +510,8 @@ def read_mpileup(pileup, rm_minvar, min_mapq, rm_mindepth, is_gh, worker_id):
             logging.critical("({}:{}) has 'I' but no rm_indel" \
                 .format(pileup[0], pileup[1]))
 
+    read_base_with_d = "".join([j if map_q_filter[i] else "D" \
+        for i, j in enumerate(pileup[4])])
     r_num, v_num = get_reference_variant_allele_num(read_base_with_d)
     
     read_base_list_final = rebuild_read_base_list(read_base_without_i,
@@ -543,14 +528,14 @@ def read_mpileup(pileup, rm_minvar, min_mapq, rm_mindepth, is_gh, worker_id):
         r_num, v_num, 1, read_info_list, 1)
 
 
-def choose(candidate_index_list, current_basis, choice_out, basis_filter):
+def choose(candidate_index, current_basis, choice_out, basis_filter):
     """
 
-    choose indexs from the candidate_index_list according to current_basis
-    :param candidate_index_list: the length equal to the number of 'True's in basis_filter
+    choose indexs from the candidate_index according to current_basis
+    :param candidate_index: the length equal to the number of 'True's in basis_filter
     :type values: list[int]
     """
-    values = list(compress(current_basis, basis_filter))
+    values = compress(current_basis, basis_filter)
     tmp = Counter(values).most_common()
     value_list = [i[0] for i in tmp]
     count_list = [i[1] for i in tmp]
@@ -559,22 +544,29 @@ def choose(candidate_index_list, current_basis, choice_out, basis_filter):
     candidate = []
     if len(choice_out) >= 2:
         return candidate
-    if count_list[value_list.index(sorted_value_list[0])] == 1:  # Only one of the maximum
-        choice_out.append(candidate_index_list[values.index(sorted_value_list[0])])
-        basis_filter[candidate_index_list[values.index(sorted_value_list[0])]] = False
+
+    # Only one of the maximum
+    if count_list[value_list.index(sorted_value_list[0])] == 1:
+        new_choice_0 = candidate_index[values.index(sorted_value_list[0])]
+        choice_out.append(new_choice_0)
+        basis_filter[new_choice_0] = False
 
         if len(choice_out) < 2:
-            if count_list[value_list.index(sorted_value_list[1])] == 1:  # only one second largest value
-                choice_out.append(candidate_index_list[values.index(sorted_value_list[1])])
-                basis_filter[candidate_index_list[values.index(sorted_value_list[1])]] = False
+            # only one second largest value
+            if count_list[value_list.index(sorted_value_list[1])] == 1:
+                new_choice_1 = candidate_index[values.index(sorted_value_list[1])]
+                choice_out.append(new_choice_1)
+                basis_filter[new_choice_1] = False
             else:
-                candidate.extend(map(lambda y: candidate_index_list[y],
-                                     filter(lambda x: values[x] == sorted_value_list[1], xrange(len(values)))))
+                new_candidates = [candidate_index[i] for i,j in enumerate(values) \
+                    if j == sorted_value_list[1]]
+                candidate.extend(new_candidates)
 
     else:
-        candidate.extend(map(lambda y: candidate_index_list[y],
-                             filter(lambda x: values[x] == sorted_value_list[0], xrange(len(values)))))
-    for i in xrange(len(basis_filter)):
+        new_candidates = [candidate_index[i] for i,j in enumerate(values) \
+            if j == sorted_value_list[0]]
+        candidate.extend(new_candidates)
+    for i in range(len(basis_filter)):
         if i not in candidate:
             basis_filter[i] = False
     return candidate
@@ -582,7 +574,7 @@ def choose(candidate_index_list, current_basis, choice_out, basis_filter):
 
 def choose_random(candidate, num):
     result = []
-    for i in xrange(num):
+    for i in range(num):
         rdm_i = np.random.randint(len(candidate))
         rdm_candidate = candidate.pop(rdm_i)
         result.append(rdm_candidate)
@@ -691,8 +683,8 @@ def read_mpileup_vcf(pileup, my_args):
                 else:
                     counter += 1
             indel_count_list = Counter(indel_list).most_common()
-            indel_name_list = map(lambda x: x[0], indel_count_list)
-            indel_count_list = map(lambda x: x[1], indel_count_list)
+            indel_name_list = [i[0] for i in indel_count_list]
+            indel_count_list = [i[1] for i in indel_count_list]
             for i in indel_name_list:
                 pileup[4] = pileup[4].replace(i, "I")
 
@@ -701,16 +693,16 @@ def read_mpileup_vcf(pileup, my_args):
     
     # screen according to mapQ
     map_q_filter = [ord(i) - PHREDSCORE >= my_args.mapq for i in pileup[6]]
-    base_q = map(lambda x: ord(x) - PHREDSCORE,
-        list(compress(pileup[5], map_q_filter)))
-    map_q = map(lambda x: ord(x) - PHREDSCORE,
-        list(compress(pileup[6], map_q_filter)))
+    base_q = [ord(j) - PHREDSCORE for i, j in enumerate(pileup[5]) \
+        if map_q_filter[i]] 
+    map_q = [ord(j) - PHREDSCORE for i, j in enumerate(pileup[6]) \
+        if map_q_filter[i]] 
 
     readbase_list_with_i = split_readbase(pileup[4], indel_list)
-    read_bases_filtered = list(compress(readbase_list_with_i, map_q_filter))
+    read_bases_filtered = compress(readbase_list_with_i, map_q_filter)
 
     i_filter = ["+" not in i and "-" not in i for i in read_bases_filtered]
-    read_base_list_without_i = list(compress(read_bases_filtered, i_filter))
+    read_base_list_without_i = compress(read_bases_filtered, i_filter)
 
     # less min_depth
     if len(read_bases_filtered) < my_args.min_depth:
@@ -721,8 +713,8 @@ def read_mpileup_vcf(pileup, my_args):
     var_counts = [read_base_list_without_i.count(i) for i in var_names]
     # Filter out mutations/bases that were not observed
     name_filter = [i > 0 for i in var_counts]
-    var_names = list(compress(var_names, name_filter))
-    var_counts = list(compress(var_counts, name_filter))
+    var_names = compress(var_names, name_filter)
+    var_counts = compress(var_counts, name_filter)
 
     var_names.extend(indel_name_list)
     var_counts.extend(indel_count_list)
@@ -738,8 +730,8 @@ def read_mpileup_vcf(pileup, my_args):
     var_BQ = []
     for var_name in var_names:
         q_filter = [j == var_name for j in read_bases_filtered]
-        var_MQ.append(sum(list(compress(map_q, q_filter))))
-        var_BQ.append(sum(list(compress(base_q, q_filter))))
+        var_MQ.append(sum(compress(map_q, q_filter)))
+        var_BQ.append(sum(compress(base_q, q_filter)))
     
     geno_class = get_geno_class(read_bases_filtered, map_q, base_q, var_counts,
         var_MQ, var_BQ)
@@ -757,8 +749,8 @@ def read_mpileup_vcf(pileup, my_args):
 
 def sort_by_name(var_names, v_count_list, v_map_q_list, v_base_q_list):
     len_names = len(var_names)
-    for i in xrange(len_names):
-        for j in xrange(len_names):
+    for i in range(len_names):
+        for j in range(len_names):
             index = len_names - 1 - j - i
             if index == 0:
                 break
@@ -775,6 +767,7 @@ def get_geno_class(read_bases_filtered, map_q, base_q, var_counts, var_MQ, var_B
     if len(var_counts) < 2:
         return 1
     second_num = sorted(var_counts)[-2]
+
     ref_num = read_bases_filtered.count(".") + read_bases_filtered.count(",")
     if ref_num > second_num:
         return 1
@@ -782,15 +775,20 @@ def get_geno_class(read_bases_filtered, map_q, base_q, var_counts, var_MQ, var_B
         return 2
     else:
         read_base_filter = [i in [".", ","] for i in read_bases_filtered]
-        sum_ref_map_q = sum(list(compress(map_q, read_base_filter)))
-        v_map_q = var_MQ[var_counts.index(second_num)]
+        sum_ref_map_q = sum(compress(map_q, read_base_filter))
+        try:
+            v_map_q = var_MQ[var_counts.index(second_num)]
+        except:
+            import pdb; pdb.set_trace()
+
         if sum_ref_map_q > v_map_q:
             return 1
         elif sum_ref_map_q < v_map_q:
             return 2
         else:
-            sum_ref_base_q = sum(list(compress(base_q, read_base_filter)))
+            sum_ref_base_q = sum(compress(base_q, read_base_filter))
             v_base_q = var_BQ[var_counts.index(second_num)]
+            
             if sum_ref_base_q >= v_base_q:
                 return 1
             return 2
@@ -805,7 +803,7 @@ def get_golden_hetero(my_args, pileup, worker_id, min_map_q=20):
     """
 
     read_base = read_mpileup(pileup, 0, min_map_q, my_args.min_depth, True,
-        worker_id)  # type: str
+        worker_id)
     if not read_base or read_base == -1:
         return None
     ref_count = len([1 for i in read_base if i in [pileup[2], ".", ","]])
@@ -956,8 +954,7 @@ def differential(my_args, q2_list, rel_pileup, q5, worker_id, q2_list_is_end,
     if tracked_data is None:
         return False
 
-    bias = bias_estimator(rel_pileup.pos, tracked_data, my_args.lamb,
-        my_args.bias)
+    bias = bias_estimator(rel_pileup.pos, tracked_data, my_args)
 
     # <INFO, NB> Calculation of basic values for GQ and PL
     # rr = Sequencing  Noise (rr_u = log10(rr))
@@ -1007,7 +1004,7 @@ def get_so_source(bulk_pileup_source, my_args):
     pos = -1
     while 1:
         if should_read:
-            bulk_pileup_list = bulk_pileup_source.next()
+            bulk_pileup_list = next(bulk_pileup_source)
             if bulk_pileup_list == -1:
                 logging.info("Use samtools engine instead!")
                 yield -1
@@ -1029,11 +1026,9 @@ def get_so_source(bulk_pileup_source, my_args):
 def read_bulk_mpileup(pileup, my_args):
     if "*" in pileup[4] or "-" in pileup[4] or "+" in pileup[4]:
         return "indel"
-    # remove head(^) and tail($)
     pileup[4] = remove_head_end(pileup)
-    # mapQ
-    map_q_filter = [ord(i) - PHREDSCORE >= my_args.bulk_min_mapq for i in pileup[6]]
-    read_base = compress_read_bases(pileup[4], map_q_filter)
+    MQ_filter = [ord(i) - PHREDSCORE >= my_args.bulk_min_mapq for i in pileup[6]]
+    read_base = compress_read_bases(pileup[4], MQ_filter)
     if len(read_base) < my_args.bulk_min_depth:
         return "lessmindepth"
     maxvar = max([read_base.count('A'), read_base.count('C'),
@@ -1043,7 +1038,7 @@ def read_bulk_mpileup(pileup, my_args):
     return "varreads"
 
 
-def bias_estimator(pos, tracked_data, lamb, default):
+def bias_estimator(pos, tracked_data, my_args):
     """
     calculate bias
     :type lamb: int
@@ -1057,6 +1052,7 @@ def bias_estimator(pos, tracked_data, lamb, default):
     :param default: default value
     :return:
     """
+
     be_kwy = []
     be_kw = []
     for i in tracked_data:
@@ -1070,18 +1066,18 @@ def bias_estimator(pos, tracked_data, lamb, default):
         if be_tmp1 <= 0:
             continue
 
-        be_tmp = bias_kernel(int(pos), int(i.pos), lamb)  # K in the formula
+        be_tmp = bias_kernel(int(pos), int(i.pos), my_args.lamb)  # K in the formula
         be_kwy.append(be_tmp * be_tmp1 * be_tmp2)
         be_kw.append(be_tmp * be_tmp1)
     # Nadaraya-Watson kernel-weighted average
     if len(be_kwy) > 0 and sum(be_kw) > 0:
         return sum(be_kwy) / sum(be_kw)
     # return args.bias when no neighboring heterozygous base
-    return default
+    return my_args.bias
 
 
 def bias_kernel(bk_x0, bk_xi, lamb):
-    # Eq. 2
+    # Equation 2
     if -lamb < bk_x0 - bk_xi < lamb:
         return 0.75 * (1 - (float(bk_x0 - bk_xi) / lamb) ** 2)
     else:
@@ -1120,17 +1116,7 @@ def sc_caller(sc_candidate, sc_bias, min_frac):
 
 
 def P_b_GG(bp, ref, mut, f):
-    """
-    Formula (7), calculate lg Probability value
-    :type bp: tuple (read_base, base_quality)
-    :type ref: str
-    :type mut: str
-    :type f: float
-    :param bp: data of 1 read
-    :param ref: reference base
-    :param mut: mismatch
-    :param f: {0, 0.125, bias (or 1-bias depending on mut>ref or ref>mut), 1} for {ref/ref, ref/artifacts, ref/mut; mut/mut}
-    :return: lg Probability value
+    """ Equation (7), calculate lg Probability value
     """
     e = 10 ** (-bp[1] / 10.0)
 
@@ -1159,8 +1145,7 @@ def calculate_eta(list_var_buf, list_var_tag):
         if not var_tag:
             break
         for q5_item in list_var_buf[i]:
-            allele_nums.append(q5_item.outline.var_num \
-                + q5_item.outline.ref_num)
+            allele_nums.append(q5_item.outline.total_num)
             bias_list.append(q5_item.outline.bias) 
     
     allele_nums = allele_nums[:CUTOFFNUM]
@@ -1169,11 +1154,12 @@ def calculate_eta(list_var_buf, list_var_tag):
     LLR = np.zeros(len(allele_nums))
     for i, allele_num in enumerate(allele_nums):
         f_artifact = 0.125 * bias_list[i] / 0.5
-        alt = np.random.binomial(allele_num, f_artifact) #bin (depth(number of trials),prob_success)
+        # bin (depth(number of trials),prob_success)
+        alt = np.random.binomial(allele_num, f_artifact)
         ref = allele_num - alt
         L_filter = (1 - f_artifact) ** ref * f_artifact ** alt
         ## random select major allele
-        major = np.random.binomial(1, .5)
+        major = np.random.randint(2)
         if major == 0:
             f_true = 0.5 * 0.5 / bias_list[i]
         if major == 1:
@@ -1230,13 +1216,12 @@ def write_result(q5, args, name):
                 # try to write coverage file
                 merged_coverage_list = merge_coverage(list_coverage_buf)
                 if merged_coverage_list:
+                    cov_list = map(lambda z: "\t".join(z),
+                        map(lambda x: map(lambda y: str(y), x), 
+                            merged_coverage_list))
+                    import pdb; pdb.set_trace()
                     with open(cov_file, "a") as fp_cov:
-                        fp_cov.write("\n".join(
-                            map(lambda z: "\t".join(z),
-                                map(lambda x: map(lambda y: str(y), x),
-                                    merged_coverage_list)
-                            )
-                        ))
+                        fp_cov.write("\n".join(cov_list))
                 if eta == -1:
                     if get_current_cutoff_num(list_var_buf, list_var_tag) > 0:
                         eta = calculate_eta(list_var_buf, list_var_tag)
@@ -1284,7 +1269,7 @@ def write_result(q5, args, name):
                     list_var_buf[w_id] = []
                     list_coverage_buf[w_id] = []
                 else:
-                    list_var_buf[w_id].append(msg_q5)  # record data
+                    list_var_buf[w_id].append(msg_q5)
 
             else:
                 list_coverage_buf[w_id].append(msg_q5.coverage)
@@ -1306,7 +1291,7 @@ def get_current_cutoff_num(list_var_buf, list_var_tag):
 
 def merge_coverage(list_coverage_buf):
     # list_coverage_buf: [[coverage1, coverage2...]]
-    result_list = []  # [coverage1, coverage2...]  coverage: [name str ,start int ,stop int]
+    result_list = []
     for coverage_buf in list_coverage_buf:
         if not result_list:
             result_list.extend(coverage_buf)
@@ -1353,16 +1338,7 @@ def data_generator(my_args, name, start, stop, is_bulk):
     return generator(my_args, name, start, stop, is_bulk)
 
 
-# type: (str, str, str, int, int, str) -> GeneratorExit
 def data_generator_pysam(my_args, name, start, stop, is_bulk):
-    """
-
-    :param stop:
-    :param name:
-    :param start:
-    :type fasta_file: str
-    :type bam_file: str
-    """
     fasta_file = pysam.FastaFile(my_args.fasta)
     str_ref = fasta_file.fetch(name, start - 1, stop + 1)
 
@@ -1431,9 +1407,7 @@ def data_generator_samtools(my_args, name, start, stop, is_bulk):
 
 
 def read_line_from_process(process_handle, ch, spliter, columns, data_out):
-    # type: (Popen, str, str, int, list) -> int
-    """
-    Read data from the process's stdout, filter out the comments, split by spliter, and check the format
+    """ Read data from the process's stdout, filter out the comments, split by spliter, and check the format
     :param process_handle: handle of the process
     :param ch: comment character
     :param spliter:
@@ -1464,10 +1438,6 @@ def read_line_from_file(from_file, ch, spliter, columns, data_out):
     :param columns: input. Greater than 0: column number of the data. Others, Unlimited
     :param data_out: output data (should clear buffer before using)
     :return: True, Success. Others, end of file.
-    eg:
-    data = []
-    with open("test") as file:
-    ret = read_data_from_file(file,"#","\t",8,data)
     """
     while 1:
         buf = from_file.readline()
@@ -1475,17 +1445,16 @@ def read_line_from_file(from_file, ch, spliter, columns, data_out):
             return False
         if buf[0] == ch:
             continue
-        buf = buf.strip("\n")
-        buf2 = buf.split(spliter)
+        buf = buf.strip("\n").split(spliter)
         if columns > 0:
-            if len(buf2) != columns:
+            if len(buf) != columns:
                 continue
             else:
                 break
         else:
             break
-    buf2[1] = int(buf2[1])
-    data_out.extend(buf2)
+    buf[1] = int(buf[1])
+    data_out.extend(buf)
     return True
 
 
@@ -1527,7 +1496,7 @@ def control(my_args, list_vcf, q5, name, head, stop, worker_id):
     if my_args.bulk != '':
         bulk_pileup_source = data_generator(my_args, name, head, stop, True)
         so_source = get_so_source(bulk_pileup_source, my_args)
-        so_source.next()
+        next(so_source)
 
     if my_args.debug:
         print('w{:<3d}\t0/{:<6}'.format(worker_id, total_work))
@@ -1536,7 +1505,7 @@ def control(my_args, list_vcf, q5, name, head, stop, worker_id):
     counter = 0
     main_index = 0
     while 1:
-        pileup = pileup_source.next()
+        pileup = next(pileup_source)
 
         if pileup == -1:  # pysam crashed
             logging.info("Use samtools engine instead!")
@@ -1674,6 +1643,9 @@ def parse_vcf(vcf_file, snp_type):
                 x.split(",")),
             catalog
         )
+        res = [map(lambda y: y if x.split(",").index(y) == 0 else int(y), x.split(",")) \
+            for x in catalog]
+        import pdb; pdb.set_trace()
     # parse vcf
     else:
         if file_type == '.gz':
@@ -1681,7 +1653,7 @@ def parse_vcf(vcf_file, snp_type):
         result = []
         name = ""
         head = 0
-        with open(vcf_file, "rb") as f:
+        with open(vcf_file, 'r') as f:
             while True:
                 line = f.readline()
                 if line == "":
@@ -1720,6 +1692,9 @@ def main(my_args):
         format=LOG_FORMAT, filemode="w")
 
     logging.info("Welcome to SCcaller v{}".format(VERSION))
+
+
+    # mp.cpu_count()
 
     if my_args.debug:
         my_args.cpu_num = 1
@@ -1778,7 +1753,7 @@ def main(my_args):
         if my_args.work_num > 1:
             process_pool = mp.Pool(processes=my_args.cpu_num)
 
-        for woker_id in xrange(my_args.work_num):
+        for woker_id in range(my_args.work_num):
             head = start + woker_id * step
             tail = head + step
             if woker_id != 0:
