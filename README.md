@@ -1,5 +1,5 @@
-# SCcaller
-Single Cell Caller (SCcaller) - Identify single nucleotide variations (SNVs) and short insertions and deletions (INDELs) from single cell sequencing data
+# SCcaller_NB
+Single Cell Caller (SCcaller) - NB fork - Identify single nucleotide variations (SNVs) and short insertions and deletions (INDELs) from single cell sequencing data
 
 Version 2.0.0_NB
 
@@ -13,6 +13,7 @@ Dong X et al. Accurate identification of single-nucleotide variants in whole-gen
 ## Author and License
 
 Authors: Xiao Dong, Yujue Wang
+
 Email: biosinodx@gmail.com (X.D.), xiao.dong@einstein.yu.edu (X.D.), spsc83@gmail.com (Y.W.)
 
 Modifications: Nico Borgsmüller (nico.borgsmueller@bsse.ethz.ch)
