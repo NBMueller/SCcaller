@@ -1,9 +1,9 @@
 # SCcaller
 Single Cell Caller (SCcaller) - Identify single nucleotide variations (SNVs) and short insertions and deletions (INDELs) from single cell sequencing data
 
-Version 2.0.0
+Version 2.0.0_NB
 
-Updated date: 2019.04.01
+Updated date: 2020.09.24
 
 Cite us:
 
@@ -13,8 +13,9 @@ Dong X et al. Accurate identification of single-nucleotide variants in whole-gen
 ## Author and License
 
 Authors: Xiao Dong, Yujue Wang
-
 Email: biosinodx@gmail.com (X.D.), xiao.dong@einstein.yu.edu (X.D.), spsc83@gmail.com (Y.W.)
+
+Modifications: Nico Borgsmüller (nico.borgsmueller@bsse.ethz.ch)
 
 Licensed under the GNU Affero General Public License version 3 or later
 
@@ -23,9 +24,8 @@ Licensed under the GNU Affero General Public License version 3 or later
 
 python 2.7
 
-python modules os, argparse, sys, subprocess, re, collections, itertools, logging, time, functiontools, random, string, math, numpy, multiprocessing, pysam(0.15.1)
-
-samtools v.1.9+ (Other versions not tested)
+numpy
+pysam(0.15.1) or samtools v.1.9+ (Other versions not tested)
 
 #####
 ## USAGE
