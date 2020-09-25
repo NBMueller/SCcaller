@@ -747,17 +747,17 @@ def read_mpileup_vcf(pileup, my_args):
         v_num, len(var_names), read_info_list, None, geno_class, var_all_str)
 
 
-def sort_by_name(var_names, v_count_list, v_map_q_list, v_base_q_list):
+def sort_by_name(var_names, var_counts, var_MQ, var_BQ):
     len_names = len(var_names)
     for i in range(len_names):
         for j in range(len_names):
             index = len_names - 1 - j - i
             if index == 0:
                 break
-            if v_count_list[index] > v_count_list[index - 1] \
-                    or v_map_q_list[index] > v_map_q_list[index - 1] \
-                    or v_base_q_list[index] >= v_base_q_list[index - 1]:
-                for ex_list in [var_names, v_count_list, v_map_q_list, v_base_q_list]:
+            if var_counts[index] > var_counts[index - 1] \
+                    or var_MQ[index] > var_MQ[index - 1] \
+                    or var_BQ[index] >= var_BQ[index - 1]:
+                for ex_list in [var_names, var_counts, var_MQ, var_BQ]:
                     ex_list[index], ex_list[index - 1] = \
                         ex_list[index - 1], ex_list[index]
     return var_names
@@ -1131,10 +1131,9 @@ def P_b_GG(bp, ref, mut, f):
 
 
 def get_my_filename(output, suffix):
-    dir_name = os.path.dirname(output)
     file_name_base = os.path.splitext(os.path.basename(output))[0]
     file_name = '{}{}'.format(file_name_base, suffix)
-    return os.path.join(dir_name, file_name)
+    return os.path.join(os.path.dirname(output), file_name)
 
 
 def calculate_eta(list_var_buf, list_var_tag):
@@ -1243,8 +1242,8 @@ def write_result(q5, args, name):
                     list_var_tag[w_id] = True
                     logging.info("chr{} worker{} done".format(name, w_id))
                     # Try to calculate eta, write data
-                    if get_current_cutoff_num(list_var_buf, list_var_tag) >= CUTOFFNUM \
-                            and eta == -1:
+                    if get_current_cutoff_num(list_var_buf, list_var_tag) \
+                            >= CUTOFFNUM and eta == -1:
                         eta = calculate_eta(list_var_buf, list_var_tag)
                     if eta != -1:
                         for i, var_buf in enumerate(list_var_buf):
@@ -1318,7 +1317,8 @@ def write_do(data_list, work_type, worker_id, fp_out, eta, fp_reasoning, my_args
             fp_out.write("\n".join([i.get_varcall_str() for i in data_list]))
             fp_out.write("\n")
         if my_args.bulk != "" and data_list:
-            fp_reasoning.write("\n".join([i.get_reason_str() for i in data_list]))
+            fp_reasoning.write("\n".join(
+                [i.get_reason_str() for i in data_list]))
             fp_reasoning.write("\n")
     elif work_type == WORKVCF:
         fp_out.write("\n".join(
@@ -1416,8 +1416,12 @@ def read_line_from_process(process_handle, ch, spliter, columns, data_out):
     """
     while 1:
         buf = []
-        if not read_line_from_file(process_handle.stdout, ch, spliter, columns, buf):
-            if not process_handle.poll() is None:  # samtools has been terminated
+        read_flag = read_line_from_file(process_handle.stdout, ch, spliter, 
+            columns, buf)
+        if not read_flag:
+
+            # samtools has been terminated
+            if not process_handle.poll() is None:
                 return False
             else:
                 continue
@@ -1428,7 +1432,6 @@ def read_line_from_process(process_handle, ch, spliter, columns, data_out):
 
 
 def read_line_from_file(from_file, ch, spliter, columns, data_out):
-    # type: (file, str, str, int, list) -> int
     """
     Read data from file, filter out comments, and split by spliter, check format
     :param from_file: file pointer
@@ -1694,8 +1697,7 @@ def main(my_args):
 
     if my_args.debug:
         my_args.cpu_num = 1
-
-    my_args.work_num = max(1, min(my_args.cpu_num, mp.cpu_count() - 1))
+        my_args.work_num = 1
 
     if my_args.debug:
         print("\nRunning SCcaller v{} in debugging mode".format(VERSION))
