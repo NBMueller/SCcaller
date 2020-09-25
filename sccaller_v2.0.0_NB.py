@@ -191,8 +191,8 @@ def parse_args():
         help="Min allelic fraction considered. Default=0.03.")
     parser.add_argument("-e", "--engine", type=str, choices=["pysam", "samtools"],
         default="pysam", help="Pileup engine. Default: pysam")
-    parser.add_argument("-w", "--work_num", type=int, default=100,
-        help="# splits per chromosome for multi-process computing. Default: 100.")
+    parser.add_argument("-w", "--work_num", type=int, default=-1,
+        help="Deprecated (defined automatically.")
     parser.add_argument("-n", "--cpu_num", type=int, default=1,
         help="Num. processes. Default: 1")
     parser.add_argument("--head", type=int, default=1,
@@ -1130,12 +1130,11 @@ def P_b_GG(bp, ref, mut, f):
     return a
 
 
-def get_my_filename(output, suffix, prefix=None):
-    base = os.path.basename(output)
-    if not prefix:
-        prefix =  os.path.dirname(output)
-    prefix = os.path.dirname(output)
-    return '{}{}{}'.format(prefix, os.path.splitext(base)[0], suffix)
+def get_my_filename(output, suffix):
+    dir_name = os.path.dirname(output)
+    file_name_base = os.path.splitext(os.path.basename(output))[0]
+    file_name = '{}{}'.format(file_name_base, suffix)
+    return os.path.join(dir_name, file_name)
 
 
 def calculate_eta(list_var_buf, list_var_tag):
@@ -1686,19 +1685,17 @@ def parse_vcf(vcf_file, snp_type):
 
 def main(my_args):
     # Init logging
-    log_file = get_my_filename(my_args.output, "_{:0>2d}to{:0>2d}.log" \
-        .format(my_args.head, my_args.tail), "sc_")
+    log_file = get_my_filename(my_args.output, "_sccaller_{:0>2d}to{:0>2d}.log" \
+        .format(my_args.head, my_args.tail))
     logging.basicConfig(filename=log_file, level=logging.DEBUG,
         format=LOG_FORMAT, filemode="w")
 
     logging.info("Welcome to SCcaller v{}".format(VERSION))
 
-
-    # mp.cpu_count()
-
     if my_args.debug:
         my_args.cpu_num = 1
-        my_args.work_num = 1
+
+    my_args.work_num = max(1, min(my_args.cpu_num, mp.cpu_count() - 1))
 
     if my_args.debug:
         print("\nRunning SCcaller v{} in debugging mode".format(VERSION))
