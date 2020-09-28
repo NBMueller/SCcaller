@@ -59,7 +59,7 @@ class OutLineStruct:
 
         filter_str = self._get_filter(min_var)
         
-        return '{}\t{}\t.\t{}\t{}\t{}\t{}\tNS=1{}\t{}' \
+        return '{}\t{}\t.\t{}\t{}\t{}\t{}\tNS=1\t{}\t{}' \
             .format(self.name, self.pos, self.ref, self.var_all,
                 self.gq, filter_str, format_str, cell_str)
 

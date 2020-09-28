@@ -25,7 +25,7 @@
 # v0.0.2, 2016.04.19, fixing bugs - jump mpileup file column not fit problem.
 # v0.0.1, 2016.03, adding likelihood ratio test based on null distribution from the data resampling.
 
-# Standard libraries
+
 import sys
 import os
 import re
@@ -38,9 +38,9 @@ from subprocess import Popen, PIPE
 import multiprocessing as mp
 from collections import Counter
 # Additional libraries
-import pysam  # 0.15.1
 import numpy as np
 # SCcaller internal libraries
+import libs.SCcallerIO as io
 from libs.BigForewordList import BigForewordList
 from libs.OutLineStruct import OutLineStruct, MULTIPLEGENOTYPE, NOTENOUGHVARIANTS
 
@@ -203,6 +203,9 @@ def parse_args():
         "Default: -1")
     parser.add_argument("--format", type=str, choices=["bed", "vcf"],
         default="vcf", help="Output file format. Default: vcf")
+    parser.add_argument("--output_all", action="store_true", default=False,
+        help='If set, output all pileups (also FORMAT/SO="NA|False"). '
+            'Otherwise output only FORMAT/SO="True" pileups. Default: False')
     parser.add_argument("--coverage", action="store_true", default=False,
         help="use \"--coverage\" to generate the coverage file at the same time")
     parser.add_argument("--bulk", type=str, default="",
@@ -237,62 +240,6 @@ def parse_args():
             os.remove(get_my_filename(args.output, out_ending))
 
     return args
-
-
-def parse_fasta(fasta_file):
-    """
-    Parse the fasta file into the format [[name,head,tail],[name,head,tail]...]
-    :param fasta_file_name:
-    :return:
-    """
-
-    # check catalog
-    catalog_file = "{}.catalog".format(os.path.splitext(fasta_file)[0])
-    if os.path.exists(catalog_file) \
-            and os.path.getmtime(catalog_file) > os.path.getmtime(fasta_file):
-        with open(catalog_file, "r") as fp:
-            catalog = fp.read().split(";")
-        my_result = map(
-            lambda x: map(
-                lambda y: y if x.split(",").index(y) == 0 else int(y),
-                    x.split(",")),
-            catalog
-        )
-    # parse fasta
-    else:  
-        with open(fasta_file) as fp:
-            fasta = fp.read().split(">")
-
-        my_result = []
-        for target in fasta:
-            if target == "":
-                continue
-
-            first_line_idx = target.find("\n")
-            first_line = target[:first_line_idx]
-
-            if not " " in first_line:
-                name = first_line
-            else:
-                name = first_line[:first_line.index(' ')]
-
-            target = target[first_line_idx + 1:].replace("\n", "")
-            target_len = len(target)
-
-            try:
-                head = re.search('[^N]', target).start() + 1
-            except AttributeError:
-                head = target_len
-                tail = 0
-            else:
-                for j in range(target_len -1, 0, -1):
-                    if target[j] != "N":
-                        break
-                tail = j + 1 
-
-            my_result.append([name, head, tail])
-
-    return my_result
 
 
 def parse_indel(indel_str, indel_list_out):
@@ -1200,7 +1147,7 @@ def write_result(q5, args, name):
     eta_file = '{}.eta'.format(args.output)
 
     eta = -1
-    current_handling_worker = 1
+    current_handling_worker = 0
 
     with open(body_file, "a") as fp_out, \
             open(reasoning_file, "a") as fp_reasoning, \
@@ -1247,16 +1194,16 @@ def write_result(q5, args, name):
                         eta = calculate_eta(list_var_buf, list_var_tag)
                     if eta != -1:
                         for i, var_buf in enumerate(list_var_buf):
-                            if i < current_handling_worker - 1:
+                            if i < current_handling_worker:
                                 continue
-                            if list_var_tag[i]:
+                            elif list_var_tag[i]:
                                 if var_buf:
                                     write_do([j.outline for j in var_buf],
-                                        msg_q5.work_type, i + 1, fp_out, eta,
+                                        msg_q5.work_type, i, fp_out, eta,
                                         fp_reasoning, args)
                                 else:
                                     logging.info("Chr{} worker{} write len=0" \
-                                        .format(name, i + 1))
+                                        .format(name, i))
                                 current_handling_worker += 1
                             else:
                                 break
@@ -1329,137 +1276,6 @@ def write_do(data_list, work_type, worker_id, fp_out, eta, fp_reasoning, my_args
     logging.debug("worker{} write len={}".format(worker_id, len(data_list)))
 
 
-def data_generator(my_args, name, start, stop, is_bulk):
-    if my_args.engine == "samtools":
-        generator = data_generator_samtools
-    else:
-        generator = data_generator_pysam
-    return generator(my_args, name, start, stop, is_bulk)
-
-
-def data_generator_pysam(my_args, name, start, stop, is_bulk):
-    fasta_file = pysam.FastaFile(my_args.fasta)
-    str_ref = fasta_file.fetch(name, start - 1, stop + 1)
-
-    my_arg = {"fastafile": fasta_file, "stepper": "samtools",
-        "adjust_capq_threshold": 50, "contig": name, "start": start,
-        "stop": stop, "min_mapping_quality": 0 if is_bulk else 40}
-
-    if is_bulk:
-        bam_file = pysam.AlignmentFile(my_args.bulk, "rb")
-    else:
-        bam_file = pysam.AlignmentFile(my_args.bam, "rb")
-    read_bases_list = []
-    for pileup_column in bam_file.pileup(**my_arg):
-        pos = pileup_column.reference_pos + 1
-
-        if pos > stop:
-            break
-        if pos < start:
-            continue
-
-        try:
-            read_bases_list = pileup_column \
-                .get_query_sequences(mark_matches=True, mark_ends=True,
-                    add_indels=True)
-        except Exception as e:
-            logging.debug("Pysam crashed! Unexpected Error: {}".format(e))
-            yield -1
-
-        read_bases = ''.join(read_bases_list)
-        if len(read_bases) == 0:
-            read_bases = "*"
-
-        base_qualities = "".join([chr(int(i) + 33) \
-            for i in pileup_column.get_query_qualities()])
-        if len(base_qualities) == 0:
-            base_qualities = "*"
-
-        mapq = "".join([chr(int(i) + 33) \
-            for i in pileup_column.get_mapping_qualities()])
-        if len(mapq) == 0:
-            mapq = "*"
-
-        result = [name, pos, str_ref[pos - start], 
-            str(pileup_column.get_num_aligned()), read_bases.upper(),
-            base_qualities, mapq]
-
-        yield result
-    yield None
-
-
-def data_generator_samtools(my_args, name, start, stop, is_bulk):
-    if is_bulk:
-        cmd_str = "samtools mpileup -C50  -f {} -s {} -r {}:{}-{}" \
-            .format(my_args.fasta, my_args.bam, name, start, stop)
-    else:
-        cmd_str = "samtools mpileup -C50  -f {} -q 40 -s {} -r {}:{}-{}" \
-            .format(my_args.fasta, my_args.bam, name, start, stop)
-    process_samtools = Popen([cmd_str], shell=True, stdout=PIPE)
-    while 1:
-        pileup = []
-        if not read_line_from_process(process_samtools, "#", "\t", 7, pileup):
-            break
-        else:
-            yield pileup
-    yield None
-
-
-def read_line_from_process(process_handle, ch, spliter, columns, data_out):
-    """ Read data from the process's stdout, filter out the comments, split by spliter, and check the format
-    :param process_handle: handle of the process
-    :param ch: comment character
-    :param spliter:
-    :param columns: input. Greater than 0: column number of the data. Others, Unlimited
-    :param data_out: output data (should clear buffer before using)
-    :return: True, Success. Others, processes have been terminated, and stdout can't read the data.
-    """
-    while 1:
-        buf = []
-        read_flag = read_line_from_file(process_handle.stdout, ch, spliter, 
-            columns, buf)
-        if not read_flag:
-
-            # samtools has been terminated
-            if not process_handle.poll() is None:
-                return False
-            else:
-                continue
-        else:
-            buf[4] = buf[4].upper()
-            data_out.extend(buf)
-            return True
-
-
-def read_line_from_file(from_file, ch, spliter, columns, data_out):
-    """
-    Read data from file, filter out comments, and split by spliter, check format
-    :param from_file: file pointer
-    :param ch: comment character
-    :param spliter:
-    :param columns: input. Greater than 0: column number of the data. Others, Unlimited
-    :param data_out: output data (should clear buffer before using)
-    :return: True, Success. Others, end of file.
-    """
-    while 1:
-        buf = from_file.readline()
-        if len(buf) == 0:
-            return False
-        if buf[0] == ch:
-            continue
-        buf = buf.strip("\n").split(spliter)
-        if columns > 0:
-            if len(buf) != columns:
-                continue
-            else:
-                break
-        else:
-            break
-    buf[1] = int(buf[1])
-    data_out.extend(buf)
-    return True
-
-
 def control(my_args, list_vcf, q5, name, head, stop, worker_id):
     """
     :param stop: Unexpanded region
@@ -1493,10 +1309,10 @@ def control(my_args, list_vcf, q5, name, head, stop, worker_id):
     total_work = my_stop - my_start
 
     # data source
-    pileup_source = data_generator(my_args, name, my_start, my_stop, False)
+    pileup_source = io.data_generator(my_args, name, my_start, my_stop, False)
     # bulk source
     if my_args.bulk != '':
-        bulk_pileup_source = data_generator(my_args, name, head, stop, True)
+        bulk_pileup_source = io.data_generator(my_args, name, head, stop, True)
         so_source = get_so_source(bulk_pileup_source, my_args)
         next(so_source)
 
@@ -1613,79 +1429,6 @@ def control(my_args, list_vcf, q5, name, head, stop, worker_id):
     logging.info("worker {} Quit!".format(worker_id))
 
 
-def load_vcf(name, vcf_info, vcf_file_name):
-    """ Read the position information of the specified name chromosome from the 
-        vcf file, and store it as a list
-    """
-    vcf_list = []
-    curr_info = [i for i in vcf_info if i[0] == name]
-    if curr_info:
-        with open(vcf_file_name) as f:
-            for i in curr_info:
-                f.seek(i[1])
-                lines = f.read(i[2]).splitlines()
-                vcf_list.extend([int(line.split('\t')[1]) for line in lines])
-    return vcf_list
-
-
-def parse_vcf(vcf_file, snp_type):
-    """ Parse the vcf file into [[name,head,length],[name,head,length]...] format
-    """
-    has_shown_info = False
-    base_file, file_type = os.path.splitext(vcf_file)
-
-    # read vcf catalog
-    catalog_file = "{}.catalog".format(base_file)
-    if os.path.exists(catalog_file) \
-            and os.path.getmtime(catalog_file) > os.path.getmtime(vcf_file):
-        with open(catalog_file, "r") as fp:
-            catalog = fp.read().split(";")
-        result = map(
-            lambda x: map(lambda y: y if x.split(",").index(y) == 0 else int(y),
-                x.split(",")),
-            catalog
-        )
-        res = [map(lambda y: y if x.split(",").index(y) == 0 else int(y), x.split(",")) \
-            for x in catalog]
-        import pdb; pdb.set_trace()
-    # parse vcf
-    else:
-        if file_type == '.gz':
-            raise IOError('VCF file {} needs to be unzipped'.format(vcf_file))
-        result = []
-        name = ""
-        head = 0
-        with open(vcf_file, 'r') as f:
-            while True:
-                line = f.readline()
-                if line == "":
-                    result.append([name, head, f.tell() - head])
-                    break
-                if line[0] == "#" or line == "\n":
-                    continue
-                
-                cols = line.split("\t")
-                if name != cols[0]:
-                    curr_idx = f.tell() - len(line)
-                    if name == "":
-                        head = curr_idx
-                    else:
-                        tail = curr_idx
-                        result.append([name, head, tail - head])
-                        head = tail
-                    name = cols[0]
-
-                if snp_type == "hsnp" and not has_shown_info and len(cols) > 8:
-                    tmp_str = "\t".join(cols[9:])
-                    tmp_list = re.findall("0\\|0|0/0|1\\|1|1/1|2/2|2\\|2", tmp_str)
-                    if len(tmp_list) > 0:
-                        logging.info(">>>Please confirm the input VCF only " \
-                            "contains heterozygote loci in bulk!<<<")
-                        has_shown_info = True
-
-    return result
-
-
 def main(my_args):
     # Init logging
     log_file = get_my_filename(my_args.output, "_sccaller_{:0>2d}to{:0>2d}.log" \
@@ -1703,12 +1446,12 @@ def main(my_args):
         print("\nRunning SCcaller v{} in debugging mode".format(VERSION))
         print('parsing vcf...')
     logging.info("parsing SNP vcf...")
-    vcf_info = parse_vcf(my_args.snp_in, my_args.snp_type)
+    vcf_info = io.parse_vcf(my_args)
 
     if my_args.debug:
         print('parsing fasta...')
     logging.info("parsing reference fasta...")
-    fasta_info = parse_fasta(my_args.fasta)
+    fasta_info = io.parse_fasta(my_args.fasta)
 
     if my_args.tail == -1 or my_args.tail > len(fasta_info):
         my_args.tail = len(fasta_info)
@@ -1728,7 +1471,7 @@ def main(my_args):
         if my_args.debug:
             print('loading vcf...')
         logging.info("loading vcf...")
-        list_vcf = load_vcf(name, vcf_info, my_args.snp_in)
+        list_vcf = io.load_vcf(name, vcf_info, my_args.snp_in)
         
         if my_args.debug:
             print('SCcaller v2.0.0 is handling chromosome {}...'.format(name))
@@ -1780,60 +1523,8 @@ def main(my_args):
         queue.put(QueueData(0, worker_type, mode=WORKEXIT), block=True)
         proc_write_result.join()
 
-    write_vcf(my_args)
-
+    io.write_vcf(my_args, VERSION)
     logging.info("W quit. All done.")
-
-
-def write_vcf(my_args):
-    """ Write the vcf file
-    """
-    head_str = "##fileformat=VCFv4.1\n" \
-        "##fileDate={date}\n" \
-        "##source=SCcaller_v{v}\n" \
-        "##reference=file:{ref}\n" \
-        "##INFO=<ID=NS,Number=1,Type=Integer,Description=" \
-        "\"Number of Samples With Data\">\n" \
-        "##FILTER=<ID={mg},Description=\"Multiple genotype\">\n" \
-        "##FILTER=<ID={nev}{mv},Description=\"Number of variant supporting " \
-        "reads <{mv}\">\n" \
-        "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n" \
-        "##FORMAT=<ID=AD,Number=.,Type=Integer,Description=\"" \
-        "Allelic depths for the ref and alt alleles in the order listed\">\n" \
-        "##FORMAT=<ID=BI,Number=1,Type=Float," \
-        "Description=\"Amplification Bias\">\n" \
-        "##FORMAT=<ID=GQ,Number=1,Type=Integer," \
-        "Description=\"Genotype Quality\">\n" \
-        "##FORMAT=<ID=FPL,Number=4,Type=Integer,Description=\"" \
-        "sequencing noise, amplification artifact, heterozygous SNV and " \
-        "homozygous SNV respectively\">\n" \
-            .format(date=time.strftime("%Y:%m:%d-%H:%M:%S", time.localtime()),
-                ref=my_args.fasta, mg=MULTIPLEGENOTYPE, v=VERSION,
-                nev=NOTENOUGHVARIANTS, mv=my_args.minvar)
-
-    if my_args.bulk != "":
-        head_str += "##FORMAT=<ID=SO,Number=1,Type=String," \
-            "Description=\"Whether it is a somatic mutation.\">\n"
-
-    eta_file = '{}.eta'.format(my_args.output)
-    with open(eta_file, 'r') as f:
-        etas = f.read()
-    head_str += etas
-    os.remove(eta_file)
-
-    sc_name = os.path.basename(my_args.bam).split('.')[0]
-    head_str += "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}\n" \
-        .format(sc_name)
-
-    body_file = '{}.body'.format(my_args.output)
-    with open(body_file, "r") as f:
-        body_str = f.read()
-    os.remove(body_file)
-
-    with open(my_args.output, "w") as fp_out:
-        if my_args.format == "vcf":
-            fp_out.write(head_str)
-        fp_out.write(body_str)
 
 
 if __name__ == "__main__":
