@@ -5,7 +5,7 @@ NOTENOUGHVARIANTS = "No.variants<"
 
 class OutLineStruct:
     def __init__(self, name, pos, ref, var, ref_num, var_num,lh, 
-                so, var_all, bias, gq, pl, genotype_num, genotype_class):
+                so, var_all, bias, gq, pl, gt_num, gt_class):
         # type: (str, int, str, str, int, int, float, float, float, float, float)
         self.name = name
         self.pos = pos
@@ -22,8 +22,8 @@ class OutLineStruct:
         self.gq = gq
         self.pl = pl
         self.get = ''
-        self.genotype_num = genotype_num
-        self.genotype_class = genotype_class
+        self.gt_num = gt_num
+        self.gt_class = gt_class
 
 
     def __str__(self):
@@ -48,9 +48,9 @@ class OutLineStruct:
     def get_vcf_str(self, eta, min_var, min_var_frac):
         gt = self._get_gt(eta, min_var_frac)
         if self.so != "":
-            format_str = "GT:SO:AD:BI:GQ:FPL"
-            cell_str = "{}:{}:{}:{:.3f}:{}:{}" \
-                .format(gt, self._transform_so(), self.ad, self.bias,
+            format_str = "GT:SO:BN:AD:BI:GQ:FPL"
+            cell_str = "{}:{}:{}:{}:{:.3f}:{}:{}" \
+                .format(gt, self._transform_so(), self.so, self.ad, self.bias,
                     self.gq, self.pl)
         else:
             format_str = "GT:AD:BI:GQ:FPL"
@@ -81,7 +81,7 @@ class OutLineStruct:
         else:
             result_str = "1/1"
 
-        if self.genotype_class == 2:
+        if self.gt_class == 2:
             if result_str == "0/0":
                 result_str = "1/1"
             elif result_str == "0/1":
@@ -93,12 +93,12 @@ class OutLineStruct:
 
 
     def _get_filter(self, min_var):    
-        if self.genotype_class == 1:
+        if self.gt_class == 1:
             var_num = self.var_num
         else:
             var_num = self.ref_num
 
-        if len(self.var.split(",")) < self.genotype_num or var_num < min_var:
+        if len(self.var.split(",")) < self.gt_num or var_num < min_var:
             if var_num < min_var:
                 comment = '{},{}{}' \
                     .format(MULTIPLEGENOTYPE, NOTENOUGHVARIANTS, min_var)
@@ -110,9 +110,9 @@ class OutLineStruct:
 
 
     def _transform_so(self):
-        if self.so == "refgenotype":
+        if self.so == "ref":
             return "True"
-        elif self.so == "varreads":
+        elif self.so.startswith("var"):
             return "False"
         else:
             return "NA"

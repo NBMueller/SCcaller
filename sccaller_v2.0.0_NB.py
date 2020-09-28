@@ -47,7 +47,7 @@ from libs.OutLineStruct import OutLineStruct, MULTIPLEGENOTYPE, NOTENOUGHVARIANT
 
 if float(sys.version[:3]) != 2.7:
     print('\nWARNING: Python 3.X not tested for vcf .catalog file (for dbsnp) '
-        'and bed output (instead of vcf)!')
+        'and bed output (instead of vcf)!\n')
 
 
 # regular expression of indels
@@ -96,40 +96,39 @@ class QueueData:
 
 
 class GoldenHetero:
-    def __init__(self, name, pos, refcount, altcount):
+    def __init__(self, name, pos, ref_num, alt_num):
         self.name = name  # type: str
         self.pos = pos  # type: int
-        self.refcount = refcount  # type: int
-        self.altcount = altcount  # type: int
+        self.ref_num = ref_num  # type: int
+        self.alt_num = alt_num  # type: int
 
 
     def __str__(self):
         return '{}:{}\tAD:{},{}' \
-            .format(self.name, self.pos, self.refcount, self.altcount)
+            .format(self.name, self.pos, self.ref_num, self.alt_num)
 
 
 class PileupDataStruct:
-    def __init__(self, name, pos, reference_base, variant,
-                reference_allele_num, variant_allele_num, genotype_num,
-                read_info_list, so=None, genotype_class=-1, variant_all=""):
+    def __init__(self, name, pos, ref_base, var_base, ref_num, var_num, gt_num,
+                read_infos, gt_class=-1, var_all="", so=None):
         # type: (str, int, str, str, int, int, int, list[tuples], str, int) -> object
         self.name = name  # type: str
         self.pos = pos  # type: int
-        self.reference_base = reference_base  # type: str
-        self.variant = variant  # type: str
-        self.reference_allele_num = reference_allele_num  # type: int
-        self.variant_allele_num = variant_allele_num  # type: int
-        self.genotype_num = genotype_num  # type: int
-        self.read_info_list = read_info_list  # type: list[tuples]
+        self.ref_base = ref_base  # type: str
+        self.var_base = var_base  # type: str
+        self.ref_num = ref_num  # type: int
+        self.var_num = var_num  # type: int
+        self.gt_num = gt_num  # type: int
+        self.read_infos = read_infos  # type: list[tuples]
+        self.gt_class = gt_class  # type: int  # 0 unknown 1:0,0 0,1 1,1      2:1,1 1,2 2,2
+        self.var_all = var_all
         self.so = so  # type: str  # reasoning  bulk ref -- "True"   bulk var -- "False"  else -- "NA"
-        self.genotype_class = genotype_class  # type: int  # 0 unknown 1:0,0 0,1 1,1      2:1,1 1,2 2,2
-        self.variant_all = variant_all
 
 
     def __str__(self):
         return '{}:{}\tref:{}({}),alt:{}({})' \
-            .format(self.name, self.pos, self.reference_base,
-                self.reference_allele_num, self.variant, self.variant_allele_num)
+            .format(self.name, self.pos, self.ref_base, self.ref_num,
+                self.var_base, self.var_num)
 
 
 def compress(l, f):
@@ -147,33 +146,28 @@ def parse_args():
             [--tail NUM] [-e {{pysam, samtools}}] [--cpu_num NUM] [-w NUM]
             [-n NUM] -t {{dbsnp,hsnp}} -b BAM -f FASTA -s
             SNP_IN -o OUTPUT'''.format(__file__),
-        description='''SCcaller v{};
+        description='''SCcaller v{}_NB;
             Xiao Dong, biosinodx@gmail.com, xiao.dong@einstein.yu.edu;
-            Yujue Wang, spsc83@gmail.com'''.format(VERSION)
-    )
+            Yujue Wang, spsc83@gmail.com
 
+            (Modifications & refactoring: nico.borgsmueller@bsse.ethz.ch)'''.format(VERSION)
+    )
+    # Input related arguments
     parser.add_argument("-b", "--bam", type=str, required=True, 
-        help="Bamfile of a single cell")
+        help="BAM file of a single cell sequencing experiment.")
     parser.add_argument("-f", "--fasta", type=str, required=True, 
-        help="Fasta file of reference genome")
+        help="FASTA file of the reference genome.")
     parser.add_argument("-s", "--snp_in", type=str, required=True,
         help="Candidate snp input file, either from dbsnp data or heterozygous "
-            "snp (hsnp) data of the bulk, for known heterogous call. "
-            "file type: bed (1-based) or vcf.")
-    parser.add_argument("-o", "--output", type=str, required=True, 
-        help='Output file name')
+            "snp (hsnp) data of the bulk, for known heterozygous calls. "
+            "File type: bed (1-based) or vcf.")
     parser.add_argument("-t", "--snp_type", type=str, required=True,
         choices=["dbsnp", "hsnp"],
         help="SNP type for --snp_in. When choosing dbsnp, "
             "--bulk bulk_bamfile is required.")
     parser.add_argument("-d", "--wkdir", type=str, default="./",
         help="Work dir. Default: ./")
-    # parser.add_argument("-h", "--help", action="store_true")
-    parser.add_argument("-l", "--lamb", type=int, default=10000,
-        help="Lambda for bias estimation. Default: 10000.")
-    parser.add_argument("--bias", type=float, default=0.75,
-        help="Default theta (bias) for SNVs whose theta cannot be estimated. "
-            "Default: 0.75.")
+    # Cutoff/threshold related arguments
     parser.add_argument("--minvar", type=int, default=4,
         help="Min. # variant supporting reads. Default: 4")
     parser.add_argument("-mvf", "--minvarfrac", type=float, default=0.2,
@@ -183,41 +177,53 @@ def parse_args():
         help="Min. mapQ. Default: 40")
     parser.add_argument("--min_depth", type=int, default=10,
         help="Min. # reads. Default: 10")
-    parser.add_argument("--RD", type=int, default=20,
-        help="Min. read depth of known heterogous SNP called from bulk when "
-            "choosing -t dbsnp. Default: 20. Recommended: 10,15,20, depending "
-            "on average read depth.")
+    # Paramter related arguments
+    parser.add_argument("-l", "--lamb", type=int, default=10000,
+        help="Lambda for bias estimation. Default: 10000.")
+    parser.add_argument("--bias", type=float, default=0.75,
+        help="Default theta (bias) for SNVs whose theta cannot be estimated. "
+            "Default: 0.75.")
     parser.add_argument("--null", type=float, default=0.03,
         help="Min allelic fraction considered. Default=0.03.")
-    parser.add_argument("-e", "--engine", type=str, choices=["pysam", "samtools"],
-        default="pysam", help="Pileup engine. Default: pysam")
-    parser.add_argument("-w", "--work_num", type=int, default=-1,
-        help="Deprecated (defined automatically.")
-    parser.add_argument("-n", "--cpu_num", type=int, default=1,
-        help="Num. processes. Default: 1")
+    
     parser.add_argument("--head", type=int, default=1,
         help="First chromosome as sorted as in fasta file to analyze (1-based). "
             "Default: 1")
     parser.add_argument("--tail", type=int, default=-1,
         help="Last chromosome as sorted as in fasta file to analyze (1-based). "
         "Default: -1")
-    parser.add_argument("--format", type=str, choices=["bed", "vcf"],
+    # Output related arguments
+    parser.add_argument("-o", "--output", type=str, default='', 
+        help='Output file name. Default: <BAM_WITHOUT_EXTENSION>.calls.vcf|bed')
+    parser.add_argument("--format", type=str, choices=["vcf", "bed"],
         default="vcf", help="Output file format. Default: vcf")
-    parser.add_argument("--output_all", action="store_true", default=False,
-        help='If set, output all pileups (also FORMAT/SO="NA|False"). '
-            'Otherwise output only FORMAT/SO="True" pileups. Default: False')
     parser.add_argument("--coverage", action="store_true", default=False,
         help="use \"--coverage\" to generate the coverage file at the same time")
+    # Bulk related arguments
     parser.add_argument("--bulk", type=str, default="",
-        help="bamfile of bulk DNA sequencing")
+        help="bamfile of bulk normal DNA sequencing")
     parser.add_argument("--bulk_min_var", type=int, default=1,
         help="Min. num. variant supporting reads for bulk. Default: 1")
     parser.add_argument("--bulk_min_mapq", type=int, default=20,
         help="Min. mapQ for bulk. Default: 20")
     parser.add_argument("--bulk_min_depth", type=int, default=20,
         help="Min. reads for bulk. Default: 20")
+    parser.add_argument("--RD", type=int, default=15,
+        help="Min. read depth of known heterozygous SNPs called from bulk when "
+            "choosing -t dbsnp. Default: 20. Recommended: 10,15,20, depending "
+            "on average read depth.")
+    # Miscellaneous arguments
+    parser.add_argument("-e", "--engine", type=str, choices=["pysam", "samtools"],
+        default="pysam", help="Pileup engine. Default: pysam")
+    parser.add_argument("-w", "--work_num", type=int, default=10,
+        help='Number of threads to use. If you run into memory issues, try '
+            'increasing the number. Default: 10')
+    parser.add_argument("-n", "--cpu_num", type=int, default=1,
+        help="Num. processes. Default: 1")
     parser.add_argument("--debug", action='store_true',
         help="Turn of multiprocessing/threading for debugging. Default: False")
+    parser.add_argument("--seed", type=int, default=-1,
+        help="Seed to use for random number generation. Default: random")
 
     args = parser.parse_args()
 
@@ -233,6 +239,10 @@ def parse_args():
                 .format(__file__, req_file))
 
     # check result file
+    if args.output == '':
+        args.output = '{}.calls.{}' \
+            .format(os.path.splitext(args.bam)[0], args.format)
+
     if os.path.exists(args.output): #TAMA
         os.remove(args.output) #TAMA
     for out_ending in (".coverage", ".reasoning"):
@@ -243,8 +253,7 @@ def parse_args():
 
 
 def parse_indel(indel_str, indel_list_out):
-    """
-    parse indel string, return the indel string and length of indel string
+    """ parse indel string, return the indel string and length of indel string
     :param indel_str:indel string (the '+' and '-' in indel string doesn't affect the result)
     :param indel_list_out:indel string (should be clear before)
     :return:
@@ -321,11 +330,7 @@ def remove_head_end(pileup):
 
 
 def get_head_MQ(read_bases, head_index):
-    """
-    calculate the mapQ of read head (^) from readbase string without I
-    :param read_bases:
-    :param head_index:
-    :return:
+    """ calculate the mapQ of read head (^) from readbase string without I
     """
     counter = 0
     for i, read_base in enumerate(read_bases):
@@ -337,18 +342,6 @@ def get_head_MQ(read_bases, head_index):
             elif read_bases[i - 1] != "^":
                 counter += 1
     return counter
-
-
-def compress_read_bases(read_bases, my_filter):
-    """
-    compress read bases but leave the I (indel)
-    :type read_bases: str
-    :type my_filter: list
-    """
-    for i, base in enumerate(read_bases):
-        if base == "I":
-            my_filter.insert(i, True)
-    return "".join(compress(read_bases, my_filter))
 
 
 def get_reference_variant_allele_num(read_bases):
@@ -366,13 +359,7 @@ def get_reference_variant_allele_num(read_bases):
 
 
 def rebuild_read_base_list(read_base_without_i, indel_name_list, indel_count_list):
-    """
-    add indel to the end of the readbase without I, return as list
-    gather
-    :param read_base_without_i:
-    :param indel_name_list:
-    :param indel_count_list:
-    :return:
+    """ add indel to the end of the readbase without I, return as list
     """
     read_base_list = []
     read_base_list.extend(list(read_base_without_i))
@@ -385,8 +372,8 @@ def rebuild_read_base_list(read_base_without_i, indel_name_list, indel_count_lis
 
 
 def read_mpileup(pileup, rm_minvar, min_mapq, rm_mindepth, is_gh, worker_id):
-    """
-    screenfor mutations, filter out alignments that do not meet the requirements of mapQ, and convert the data format
+    """ screenfor mutations, filter out alignments that do not meet the 
+        requirements of mapQ, and convert the data format
     :param is_gh:
     :type is_gh: bool
     :type rm_mindepth: int
@@ -433,8 +420,11 @@ def read_mpileup(pileup, rm_minvar, min_mapq, rm_mindepth, is_gh, worker_id):
     pileup[4] = remove_head_end(pileup)
 
     # filter out alignments that do not meet the requirements of mapQ
-    map_q_filter = [ord(i) - PHREDSCORE >= min_mapq for i in pileup[6]]
-    read_base_with_i = compress_read_bases(pileup[4], map_q_filter)
+    MQ_filter = [ord(i) - PHREDSCORE >= min_mapq for i in pileup[6]]
+    for i, base in enumerate(pileup[4]):
+        if base == "I":
+            MQ_filter.insert(i, True)
+    read_base_with_i = "".join(compress(pileup[4], MQ_filter))
     read_base_without_i = re.sub("I", "", read_base_with_i)
 
     if len(read_base_without_i) < rm_mindepth:
@@ -457,30 +447,26 @@ def read_mpileup(pileup, rm_minvar, min_mapq, rm_mindepth, is_gh, worker_id):
             logging.critical("({}:{}) has 'I' but no rm_indel" \
                 .format(pileup[0], pileup[1]))
 
-    read_base_with_d = "".join([j if map_q_filter[i] else "D" \
+    read_base_with_d = "".join([j if MQ_filter[i] else "D" \
         for i, j in enumerate(pileup[4])])
-    r_num, v_num = get_reference_variant_allele_num(read_base_with_d)
+    ref_num, var_num = get_reference_variant_allele_num(read_base_with_d)
     
     read_base_list_final = rebuild_read_base_list(read_base_without_i,
         indel_name_list, indel_count_list)
     
     base_q = [ord(j) - PHREDSCORE for i,j in enumerate(pileup[5]) \
-        if map_q_filter[i]]
+        if MQ_filter[i]]
     num_of_i = len(read_base_with_i) - len(read_base_without_i)
     base_q.extend([DEFAULTBASEQUALITY] * num_of_i)
 
-    read_info_list = [(j, base_q[i]) for i, j in enumerate(readbase_list_with_i)]
+    read_infos = [(j, base_q[i]) for i, j in enumerate(readbase_list_with_i)]
 
-    return PileupDataStruct(pileup[0], pileup[1], pileup[2], var_max,
-        r_num, v_num, 1, read_info_list, 1)
+    return PileupDataStruct(pileup[0], pileup[1], pileup[2], var_max, ref_num,
+        var_num, 1, read_infos)
 
 
 def choose(candidate_index, current_basis, choice_out, basis_filter):
-    """
-
-    choose indexs from the candidate_index according to current_basis
-    :param candidate_index: the length equal to the number of 'True's in basis_filter
-    :type values: list[int]
+    """ choose indexs from the candidate_index according to current_basis
     """
     values = compress(current_basis, basis_filter)
     tmp = Counter(values).most_common()
@@ -529,10 +515,9 @@ def choose_random(candidate, num):
 
 
 def get_variant_info(var_names, basis, read_bases_filtered, geno_class):
-    # type: (list[str], list[list[int]], str, str) -> list
-    """
-    calculate the variant's name_str, ref_num and alt_num
-    if variant is more than 2, choose 2 according to basis. If basis doesn't work, choose randomly.
+    """ calculate the variant's name_str, ref_num and alt_num
+        if variant is more than 2, choose 2 according to basis.
+        If basis doesn't work, choose randomly.
     :param basis: [reads, map_q, base_q]
     :param var_names:
     :param ead_bases_filtered:
@@ -639,14 +624,14 @@ def read_mpileup_vcf(pileup, my_args):
     pileup[4] = remove_head_end(pileup)
     
     # screen according to mapQ
-    map_q_filter = [ord(i) - PHREDSCORE >= my_args.mapq for i in pileup[6]]
+    MQ_filter = [ord(i) - PHREDSCORE >= my_args.mapq for i in pileup[6]]
     base_q = [ord(j) - PHREDSCORE for i, j in enumerate(pileup[5]) \
-        if map_q_filter[i]] 
+        if MQ_filter[i]] 
     map_q = [ord(j) - PHREDSCORE for i, j in enumerate(pileup[6]) \
-        if map_q_filter[i]] 
+        if MQ_filter[i]] 
 
     readbase_list_with_i = split_readbase(pileup[4], indel_list)
-    read_bases_filtered = compress(readbase_list_with_i, map_q_filter)
+    read_bases_filtered = compress(readbase_list_with_i, MQ_filter)
 
     i_filter = ["+" not in i and "-" not in i for i in read_bases_filtered]
     read_base_list_without_i = compress(read_bases_filtered, i_filter)
@@ -687,11 +672,12 @@ def read_mpileup_vcf(pileup, my_args):
         [var_counts, var_MQ, var_BQ], read_bases_filtered, geno_class)
     sort_by_name(var_names, var_counts, var_MQ, var_BQ)
 
-    var_all_str = ",".join(var_names)
-    read_info_list = [(j, base_q[i]) for i, j in enumerate(readbase_list_with_i)]
+    var_all_str = ",".join(sorted(var_names))
+    read_infos = [(j, base_q[i]) for i, j in enumerate(readbase_list_with_i)]
     
     return PileupDataStruct(pileup[0], pileup[1], pileup[2], variant_str, r_num,
-        v_num, len(var_names), read_info_list, None, geno_class, var_all_str)
+        v_num, len(var_names), read_infos,
+        gt_class=geno_class, var_all=var_all_str)
 
 
 def sort_by_name(var_names, var_counts, var_MQ, var_BQ):
@@ -762,16 +748,16 @@ def get_golden_hetero(my_args, pileup, worker_id, min_map_q=20):
     return GoldenHetero(pileup[0], pileup[1],  ref_count, alt_count)
 
 
-def window_data_one_chromosome(center_pos, q2_list, lamb, is_list_ended,
+def window_data_one_chromosome(center_pos, gh_list, lamb, gh_list_end,
             current_pos):
     """
     window_data from one chromosome data
     :type current_pos: int
     :param current_pos: current handling position.
-    :param is_list_ended:
+    :param gh_list_end:
     :rtype: BigForewordList
     :type lamb: int
-    :type q2_list: BigForewordList
+    :type gh_list: BigForewordList
     :type center_pos: int
     :param center_pos: pos of data in q3
     :param data_list: data after GH in q2(GoldenHetero)
@@ -780,8 +766,8 @@ def window_data_one_chromosome(center_pos, q2_list, lamb, is_list_ended,
         None can not window yet.
         others data windowed
     """
-    if q2_list.is_empty(): # is empty
-        if is_list_ended:
+    if gh_list.is_empty(): # is empty
+        if gh_list_end:
             return []
         else:
             if current_pos - center_pos > lamb:
@@ -789,45 +775,45 @@ def window_data_one_chromosome(center_pos, q2_list, lamb, is_list_ended,
             return None
 
     # now data_list is not empty, looking for left edge
-    if q2_list.get_last_element().pos < center_pos - lamb:
-        if is_list_ended:
+    if gh_list.get_last_element().pos < center_pos - lamb:
+        if gh_list_end:
             return []
         if current_pos - center_pos > lamb:
             return []
         return None
     counter = 0  # type: int
-    len_data_list = q2_list.len()
+    len_data_list = gh_list.len()
     while 1:
         if counter >= len_data_list:
-            if is_list_ended:
+            if gh_list_end:
                 return []
             else:
                 if current_pos - center_pos > lamb:
                     return []
                 return None
-        if q2_list.get_current_element().pos >= center_pos - lamb:
-            left_edge = q2_list.get_current_element()
+        if gh_list.get_current_element().pos >= center_pos - lamb:
+            left_edge = gh_list.get_current_element()
             if left_edge.pos > center_pos + lamb:
                 return []
             break
         else:
-            q2_list.move_foreword()
+            gh_list.move_foreword()
         counter += 1
 
     # right edge
-    if q2_list.get_current_element().pos > center_pos + lamb:
+    if gh_list.get_current_element().pos > center_pos + lamb:
         return []
     counter = 0  # type: int
     while 1:
         if counter == len_data_list:
             return []
-        if q2_list.get_element(-1 - counter).pos <= center_pos + lamb:
-            if is_list_ended or counter > 0:
-                right_edge = q2_list.get_element(-1 - counter)
+        if gh_list.get_element(-1 - counter).pos <= center_pos + lamb:
+            if gh_list_end or counter > 0:
+                right_edge = gh_list.get_element(-1 - counter)
                 break
             else:
                 if current_pos - center_pos > lamb:
-                    right_edge = q2_list.get_last_element()
+                    right_edge = gh_list.get_last_element()
                     break
                 else:
                     return None
@@ -837,7 +823,7 @@ def window_data_one_chromosome(center_pos, q2_list, lamb, is_list_ended,
     # double check edges
     if int(right_edge.pos) < int(left_edge.pos):
         return []
-    return q2_list.filter(lambda x: left_edge.pos <= x.pos <= right_edge.pos)
+    return gh_list.filter(lambda x: left_edge.pos <= x.pos <= right_edge.pos)
 
 
 # <INFO, NB> Calculation of GQ value (phred-scaled genotype quality score)
@@ -869,25 +855,25 @@ def get_pl(log_lh):
     return '{:.0f},{:.0f},{:.0f},{:.0f}'.format(*pl)
 
 
-def differential(my_args, q2_list, rel_pileup, q5, worker_id, q2_list_is_end,
+def differential(my_args, gh_list, rel_pileup, queue, worker_id, gh_list_end,
         current_pos):
     """
-    window the data in q2, send result to q5.
+    window the data in gh_list, send result to queue.
     :type my_format: str
     :param my_format:
-    :type q2_list_is_end: bool
-    :param q2_list_is_end:
+    :type gh_list_end: bool
+    :param gh_list_end:
     :type worker_id: int
     :param worker_id:
     :param artifact:
     :param default_bias:
-    :param q5:
+    :param queue:
     :type current_pos: int
     :param current_pos: current data pos from source
     :type rel_pileup: PileupDataStruct
     :param rel_pileup:
-    :param q2_list: data queue to be windowed
-    :type q2_list: BigForewordList
+    :param gh_list: data queue to be windowed
+    :type gh_list: BigForewordList
     :param lamb: half of window width
     :type lamb: int
     :return:
@@ -895,8 +881,8 @@ def differential(my_args, q2_list, rel_pileup, q5, worker_id, q2_list_is_end,
     False can not window yet
     """
 
-    tracked_data = window_data_one_chromosome(rel_pileup.pos, q2_list,
-        my_args.lamb, q2_list_is_end, current_pos)
+    tracked_data = window_data_one_chromosome(rel_pileup.pos, gh_list,
+        my_args.lamb, gh_list_end, current_pos)
     
     if tracked_data is None:
         return False
@@ -924,47 +910,38 @@ def differential(my_args, q2_list, rel_pileup, q5, worker_id, q2_list_is_end,
         pl = get_pl(log_lh)
 
     outline = OutLineStruct(rel_pileup.name, rel_pileup.pos, 
-        rel_pileup.reference_base, rel_pileup.variant, 
-        rel_pileup.reference_allele_num, rel_pileup.variant_allele_num, lh,
-        rel_pileup.so, rel_pileup.variant_all, bias, gq, pl, 
-        rel_pileup.genotype_num, rel_pileup.genotype_class)
+        rel_pileup.ref_base, rel_pileup.var_base, rel_pileup.ref_num,
+        rel_pileup.var_num, lh, rel_pileup.so, rel_pileup.var_all, bias, gq, pl, 
+        rel_pileup.gt_num, rel_pileup.gt_class)
  
-    q5.put(QueueData(worker_id, worker_type, outline=outline), block=False)
+    queue.put(QueueData(worker_id, worker_type, outline=outline), block=False)
     return True
 
 
-def get_so_source(bulk_pileup_source, my_args):
-    # type: (GeneratorExit, int, int, int) -> GeneratorExit
+def so_generator(bulk_pileup_source, my_args):
     """
-    When pos in bulk greater than data_pos, should not continue to read bulk.
-    should use the current bulkpos to compare the next data_pos.
-    Build the generator, retain the bulkpos data, and achieve the above functions
-    :param bulk_pileup_source: bulk generator
     :return:
-        Datapos is not in bulk or bulk has no data: noCoverageInControl
-        Datapos in bulk does not have enough depth: lessmindepth
-        Datapos is ref in bulk: refgenotype
-        Datapos is var in bulk: varreads
-        -1 Pysam crushed and should be recalculated
+        pos is not in bulk or bulk has no data: noCoverageInControl
+        pos in bulk does not have enough depth: shallow
+        pos is indel in bulk: indel
+        pos is ref in bulk: ref
+        pos is var in bulk: germline
     """
     should_read = True
     pos = -1
     while 1:
         if should_read:
             bulk_pileup_list = next(bulk_pileup_source)
-            if bulk_pileup_list == -1:
-                logging.info("Use samtools engine instead!")
-                yield -1
             if bulk_pileup_list is None:
                 while 1:
-                    pos = yield "noCoverageInControl2"
+                    pos = yield "noCoverage"
 
         if int(bulk_pileup_list[1]) < pos:
             should_read = True
             continue
         elif int(bulk_pileup_list[1]) > pos:
             should_read = False
-            pos = yield "noCoverageInControl"
+            pos = yield "noCoverage"
         else:
             should_read = True
             pos = yield read_bulk_mpileup(bulk_pileup_list, my_args)
@@ -975,45 +952,43 @@ def read_bulk_mpileup(pileup, my_args):
         return "indel"
     pileup[4] = remove_head_end(pileup)
     MQ_filter = [ord(i) - PHREDSCORE >= my_args.bulk_min_mapq for i in pileup[6]]
-    read_base = compress_read_bases(pileup[4], MQ_filter)
+    for i, base in enumerate(pileup[4]):
+        if base == "I":
+            MQ_filter.insert(i, True)
+    read_base = "".join(compress(pileup[4], MQ_filter))
+    # Coverage in bulk/dbsnp too shallow
     if len(read_base) < my_args.bulk_min_depth:
-        return "lessmindepth"
-    maxvar = max([read_base.count('A'), read_base.count('C'),
-        read_base.count('G'), read_base.count('T')])
-    if maxvar < my_args.bulk_min_var:
-        return "refgenotype"
-    return "varreads"
+        return "shallow({})".format(len(read_base))
+
+    var_counts = sorted([(read_base.count(i), i) for i in  ["A", "C", "G", "T"]])
+    # Only reference supporintg reads in bulk normal (smaller than threshold)
+    if var_counts[-1][0] < my_args.bulk_min_var:
+        return 'ref'
+    # Variant supporting reads in bulk normal -> germline mutation
+    if var_counts[-2][0] > 0:
+        return 'var({}{},{}{})'.format(*var_counts[-1], *var_counts[-2])
+    else:
+        return 'var({}{})'.format(*var_counts[-1])
 
 
 def bias_estimator(pos, tracked_data, my_args):
-    """
-    calculate bias
-    :type lamb: int
-    :rtype: float
-    :type tracked_data: list[GoldenHetero]
-    :type default: float
-    :type pos: int
-    :param pos: center of window
-    :param tracked_data: windowed data
-    :param lamb: half of window width
-    :param default: default value
-    :return:
+    """ calculate bias
     """
 
     be_kwy = []
     be_kw = []
     for i in tracked_data:
         try:
-            be_tmp1 = float(i.refcount + i.altcount)  # type: float
-            be_tmp2 = max(i.refcount, i.altcount) / be_tmp1
+            be_tmp1 = float(i.ref_num + i.alt_num)
+            be_tmp2 = max(i.ref_num, i.alt_num) / be_tmp1
         except AttributeError:
-            be_tmp1 = float(i.reference_allele_num + i.variant_allele_num)
-            be_tmp2 = max(i.reference_allele_num, i.variant_allele_num) / be_tmp1
+            be_tmp1 = float(i.ref_num + i.var_num)
+            be_tmp2 = max(i.ref_num, i.var_num) / be_tmp1
 
         if be_tmp1 <= 0:
             continue
 
-        be_tmp = bias_kernel(int(pos), int(i.pos), my_args.lamb)  # K in the formula
+        be_tmp = bias_kernel(int(pos), int(i.pos), my_args.lamb) # K in the formula
         be_kwy.append(be_tmp * be_tmp1 * be_tmp2)
         be_kw.append(be_tmp * be_tmp1)
     # Nadaraya-Watson kernel-weighted average
@@ -1034,11 +1009,11 @@ def bias_kernel(bk_x0, bk_xi, lamb):
 def sc_caller(sc_candidate, sc_bias, min_frac):
     """ Calculate RR, RA, RM, MM from data in q3 and bias.
     """
-    if "," in sc_candidate.variant:
-        ref, mut = sc_candidate.variant.split(",")
+    if "," in sc_candidate.var_base:
+        ref, mut = sc_candidate.var_base.split(",")
     else:
-        ref = sc_candidate.reference_base
-        mut = sc_candidate.variant
+        ref = sc_candidate.ref_base
+        mut = sc_candidate.var_base
 
     # <DONE, NB>
     f_h0 = 0.125 * sc_bias
@@ -1047,7 +1022,7 @@ def sc_caller(sc_candidate, sc_bias, min_frac):
 
     f_h1 = sc_bias
     f_h2 = 1
-    if sc_candidate.reference_allele_num > sc_candidate.variant_allele_num:
+    if sc_candidate.ref_num > sc_candidate.var_num:
         f_h1 = 1 - f_h1
         # <TODO, NB> Confirm if Eq. 6 from the manuscript is wrong
         # f_h2 = 0
@@ -1057,7 +1032,7 @@ def sc_caller(sc_candidate, sc_bias, min_frac):
     log_lh = np.zeros(4)
     for idx, f in enumerate([min_frac, f_h0, f_h1, f_h2]):
         log_lh[idx] = np.log10(
-            [P_b_GG(i, ref, mut, f) for i in sc_candidate.read_info_list]).sum()
+            [P_b_GG(i, ref, mut, f) for i in sc_candidate.read_infos]).sum()
 
     return log_lh
 
@@ -1089,9 +1064,9 @@ def calculate_eta(list_var_buf, list_var_tag):
     for i, var_tag in enumerate(list_var_tag):
         if not var_tag:
             break
-        for q5_item in list_var_buf[i]:
-            allele_nums.append(q5_item.outline.total_num)
-            bias_list.append(q5_item.outline.bias) 
+        for queue_data in list_var_buf[i]:
+            allele_nums.append(queue_data.outline.total_num)
+            bias_list.append(queue_data.outline.bias) 
     
     allele_nums = allele_nums[:CUTOFFNUM]
     bias_list = bias_list[:CUTOFFNUM]
@@ -1127,9 +1102,9 @@ def calculate_eta(list_var_buf, list_var_tag):
     return result
 
 
-def write_result(q5, args, name):
+def write_result(queue, args, name):
     """
-    Receive the data in q5, organize it, and write the result file.
+    Receive the data in queue, organize it, and write the result file.
     :return:
     """
     logging.info("Waiting for data coming")
@@ -1153,11 +1128,11 @@ def write_result(q5, args, name):
             open(reasoning_file, "a") as fp_reasoning, \
             open(eta_file, "a") as fp_eta:
         while 1:
-            msg_q5 = q5.get(block=True)
-            w_id = msg_q5.worker_id
+            queue_data = queue.get(block=True)
+            w_id = queue_data.worker_id
 
             # from main
-            if msg_q5.mode == WORKEXIT:
+            if queue_data.mode == WORKEXIT:
                 # try to write coverage file
                 merged_coverage_list = merge_coverage(list_coverage_buf)
                 if merged_coverage_list:
@@ -1173,7 +1148,7 @@ def write_result(q5, args, name):
                         for i, var_buf in enumerate(list_var_buf):
                             if var_buf:
                                 write_do([j.outline for j in var_buf],
-                                    msg_q5.work_type, i, fp_out, eta,
+                                    queue_data.work_type, i, fp_out, eta,
                                     fp_reasoning, args)
                             else:
                                 logging.info("worker{} write len = 0".format(i))
@@ -1182,10 +1157,11 @@ def write_result(q5, args, name):
                 fp_eta.write("##contig=<ID={},eta={}>\n".format(name, eta))
                 break
 
-            elif msg_q5.work_type == WORKVAR or msg_q5.work_type == WORKVCF:
+            elif queue_data.work_type == WORKVAR \
+                    or queue_data.work_type == WORKVCF:
 
                 # record tag and data
-                if msg_q5.mode == WORKDONE:
+                if queue_data.mode == WORKDONE:
                     list_var_tag[w_id] = True
                     logging.info("chr{} worker{} done".format(name, w_id))
                     # Try to calculate eta, write data
@@ -1199,7 +1175,7 @@ def write_result(q5, args, name):
                             elif list_var_tag[i]:
                                 if var_buf:
                                     write_do([j.outline for j in var_buf],
-                                        msg_q5.work_type, i, fp_out, eta,
+                                        queue_data.work_type, i, fp_out, eta,
                                         fp_reasoning, args)
                                 else:
                                     logging.info("Chr{} worker{} write len=0" \
@@ -1207,19 +1183,19 @@ def write_result(q5, args, name):
                                 current_handling_worker += 1
                             else:
                                 break
-                elif msg_q5.mode == WORKERROR:
+                elif queue_data.mode == WORKERROR:
                     logging.info("worker{} pysam crashed. Data cleaned" \
                         .format(w_id))
                     list_var_tag[w_id] = False
                     list_var_buf[w_id] = []
                     list_coverage_buf[w_id] = []
                 else:
-                    list_var_buf[w_id].append(msg_q5)
+                    list_var_buf[w_id].append(queue_data)
 
             else:
-                list_coverage_buf[w_id].append(msg_q5.coverage)
+                list_coverage_buf[w_id].append(queue_data.coverage)
 
-    if args.bulk == "" or msg_q5.work_type == WORKVCF:
+    if args.bulk == "" or queue_data.work_type == WORKVCF:
         os.remove(reasoning_file)
 
     logging.info("Quit!")
@@ -1276,13 +1252,13 @@ def write_do(data_list, work_type, worker_id, fp_out, eta, fp_reasoning, my_args
     logging.debug("worker{} write len={}".format(worker_id, len(data_list)))
 
 
-def control(my_args, list_vcf, q5, name, head, stop, worker_id):
+def control(my_args, snp_pos_subset, queue, name, head, stop, worker_id):
     """
     :param stop: Unexpanded region
     :type my_args: object
-    :type list_vcf: list
+    :type snp_pos_subset: list
     :type name: str
-    :type q5: object (main queue)
+    :type queue: object (main queue)
     :type worker_id: int
     :type stop: int
     :type head: int
@@ -1290,12 +1266,11 @@ def control(my_args, list_vcf, q5, name, head, stop, worker_id):
     logging.info("worker {} begin! name={} head={} tail={} len={} engine={}" \
         .format(worker_id, name, head, stop, stop - head, my_args.engine))
 
+    snp_list = BigForewordList(snp_pos_subset)
     rel_pileups = BigForewordList([])
-    q2_list = BigForewordList([])
-    q2_list_is_end = False
-    my_vcf_list = BigForewordList(list_vcf)
+    gh_list = BigForewordList([])
+    gh_list_end = False
     
-    copy_vcf_list = copy.copy(list_vcf)
     # Expanding the edge
     if worker_id != 0:
         my_start = head - my_args.lamb
@@ -1308,12 +1283,12 @@ def control(my_args, list_vcf, q5, name, head, stop, worker_id):
         my_stop = stop
     total_work = my_stop - my_start
 
-    # data source
+    # Pileup of single cell [tumor] sample
     pileup_source = io.data_generator(my_args, name, my_start, my_stop, False)
-    # bulk source
     if my_args.bulk != '':
+        # Pileup of bulk normal sample
         bulk_pileup_source = io.data_generator(my_args, name, head, stop, True)
-        so_source = get_so_source(bulk_pileup_source, my_args)
+        so_source = so_generator(bulk_pileup_source, my_args)
         next(so_source)
 
     if my_args.debug:
@@ -1325,17 +1300,10 @@ def control(my_args, list_vcf, q5, name, head, stop, worker_id):
     while 1:
         pileup = next(pileup_source)
 
-        if pileup == -1:  # pysam crashed
-            logging.info("Use samtools engine instead!")
-            error_data = QueueData(worker_id, WORKVAR, mode=WORKERROR)
-            q5.put(error_data, block=False)
-            my_args.engine = "samtools"
-            control(my_args, copy_vcf_list, q5, name, head, stop, worker_id)
-            return
-        elif pileup is None:
+        if pileup is None:
             if my_args.coverage and len(coverage_list) > 0:
                 done_data = QueueData(worker_id, WORKCOVERAGE, mode=WORKDONE)
-                q5.put(done_data, block=False)
+                queue.put(done_data, block=False)
                 del coverage_list[0]
             break
 
@@ -1351,18 +1319,9 @@ def control(my_args, list_vcf, q5, name, head, stop, worker_id):
 
             if rel_pileup and rel_pileup != -1:
                 if my_args.bulk != "":
-                    #  calculate so
+                    # calculate so
                     result = so_source.send(rel_pileup.pos)
-                    if result == -1:
-                        logging.info("Use samtools engine instead!")
-                        error_data = QueueData(worker_id, WORKVAR, mode=WORKERROR)
-                        q5.put(error_data, block=False)
-                        my_args.engine = "samtools"
-                        control(my_args, copy_vcf_list, q5, name, head, 
-                            stop, worker_id)
-                        return
-                    else:
-                        rel_pileup.so = result
+                    rel_pileup.so = result
                 else:
                     rel_pileup.so = ""
                 rel_pileups.append(rel_pileup)
@@ -1371,7 +1330,8 @@ def control(my_args, list_vcf, q5, name, head, stop, worker_id):
             if my_args.coverage:
                 if rel_pileup and (my_args.bulk == "" \
                         or (rel_pileup == -1 or (rel_pileup != -1 \
-                            and rel_pileup.so in ["", "varreads", "refgenotype"]))):
+                            and (rel_pileup.so == "" or rel_pileup.so == "ref" \
+                                or rel_pileup.so.startswith("var"))))):
 
                     if not coverage_list:  # is empty
                         coverage_list.append([name, pileup[1], pileup[1]])
@@ -1382,13 +1342,13 @@ def control(my_args, list_vcf, q5, name, head, stop, worker_id):
                         new_coverage = coverage_list.pop(0)
                         coverage_data = QueueData(worker_id, WORKCOVERAGE, 
                             coverage=new_coverage)
-                        q5.put(coverage_data, block=False)
+                        queue.put(coverage_data, block=False)
 
         # handle the head data in rel_pileups
         if not rel_pileups.is_empty():
-            diff_success = differential(my_args, q2_list, 
-                rel_pileups.get_current_element(), q5, worker_id, q2_list_is_end,
-                pileup[1])
+            diff_success = differential(my_args, gh_list, 
+                rel_pileups.get_current_element(), queue, worker_id,
+                    gh_list_end, pileup[1])
             if diff_success:
                 rel_pileups.move_foreword()
 
@@ -1399,30 +1359,31 @@ def control(my_args, list_vcf, q5, name, head, stop, worker_id):
                 main_index += 1
                 print("w{:<3d} {:>6}/{:<6}"\
                     .format(worker_id, main_index * 10000, total_work))
-        # vcf screen
-        if not q2_list_is_end:
-            while not my_vcf_list.is_empty():
-                if my_vcf_list.get_current_element() < pileup[1]:
-                    my_vcf_list.move_foreword()
+        # Screen SNP list
+        if not gh_list_end:
+            while not snp_list.is_empty():
+                if snp_list.get_current_element() < pileup[1]:
+                   snp_list.move_foreword()
                 else:
                     break
-            if pileup[1] == my_vcf_list.get_current_element():
-                ret = get_golden_hetero(my_args, pileup, worker_id)
-                if ret is not None:
-                    q2_list.append(ret)
-            if my_vcf_list.is_empty() \
-                    or pileup[1] >= my_vcf_list.get_last_element():
-                q2_list_is_end = True
+            # current SC tumor pileup has corresponding entry in SNP list
+            if pileup[1] == snp_list.get_current_element():
+                golden_hetero = get_golden_hetero(my_args, pileup, worker_id)
+                if golden_hetero is not None:
+                    gh_list.append(golden_hetero)
+            if snp_list.is_empty() \
+                    or pileup[1] >= snp_list.get_last_element():
+                gh_list_end = True
 
     while not rel_pileups.is_empty():
-        diff_success = differential(my_args, q2_list,
-            rel_pileups.get_current_element(), q5, worker_id, True, my_stop)
+        diff_success = differential(my_args, gh_list,
+            rel_pileups.get_current_element(), queue, worker_id, True, my_stop)
         if diff_success:
             rel_pileups.move_foreword()
 
     worker_type = WORKVAR if my_args.format == "bed" else WORKVCF
     done_data = QueueData(worker_id, worker_type, mode=WORKDONE)
-    q5.put(done_data, block=False)
+    queue.put(done_data, block=False)
 
     if my_args.debug:
         print('w{:<3d} I am done!'.format(worker_id))
@@ -1441,12 +1402,20 @@ def main(my_args):
     if my_args.debug:
         my_args.cpu_num = 1
         my_args.work_num = 1
+        if my_args.seed == -1:
+            my_args.seed = 1
+
+    if my_args.seed == -1:
+        seed = np.random.randint(0, 2 ** 32 - 1)
+        np.random.seed(seed)
+    else:
+        np.random.seed(my_args.seed)
 
     if my_args.debug:
         print("\nRunning SCcaller v{} in debugging mode".format(VERSION))
         print('parsing vcf...')
     logging.info("parsing SNP vcf...")
-    vcf_info = io.parse_vcf(my_args)
+    snp_info = io.parse_snp_info(my_args)
 
     if my_args.debug:
         print('parsing fasta...')
@@ -1471,11 +1440,11 @@ def main(my_args):
         if my_args.debug:
             print('loading vcf...')
         logging.info("loading vcf...")
-        list_vcf = io.load_vcf(name, vcf_info, my_args.snp_in)
-        
+        snp_pos = np.array(io.load_snp_pos(name, snp_info, my_args.snp_in))
+
         if my_args.debug:
             print('SCcaller v2.0.0 is handling chromosome {}...'.format(name))
-        logging.debug("name={}; list_vcf len={}".format(name, len(list_vcf)))
+        logging.debug("name={}; #snps={}".format(name, len(snp_pos)))
 
         # Calculate the amount of tasks for each process
         no_bases = stop - start
@@ -1505,14 +1474,14 @@ def main(my_args):
                     logging.critical(err_str)
                     raise RuntimeError(err_str)
 
-            vcf_worker = [i for i in list_vcf \
+            snp_pos_subset = [i for i in snp_pos \
                 if head - my_args.lamb <= i <= tail + my_args.lamb]
-
+            
             if my_args.work_num > 1:
                 process_pool.apply_async(control, 
-                    (my_args, vcf_worker, queue, name, head, tail, woker_id))
+                    (my_args, snp_pos_subset, queue, name, head, tail, woker_id))
             else:
-                control(my_args, vcf_worker, queue, name, head, tail, woker_id)
+                control(my_args, snp_pos_subset, queue, name, head, tail, woker_id)
                 
         if my_args.work_num > 1:
             process_pool.close()

@@ -70,33 +70,33 @@ def parse_fasta(fasta_file):
     return my_result
 
 
-def load_vcf(name, vcf_info, vcf_file_name):
+def load_snp_pos(name, snp_info, vcf_file_name):
     """ Read the position information of the specified name chromosome from the 
         vcf file, and store it as a list
     """
-    vcf_list = []
-    curr_info = [i for i in vcf_info if i[0] == name]
+    snp_pos = []
+    curr_info = [i for i in snp_info if i[0] == name]
     if curr_info:
         with open(vcf_file_name) as f:
             for i in curr_info:
                 f.seek(i[1])
                 lines = f.read(i[2]).splitlines()
-                vcf_list.extend([int(line.split('\t')[1]) for line in lines])
-    return vcf_list
+                snp_pos.extend([int(line.split('\t')[1]) for line in lines])
+    return snp_pos
 
 
-def parse_vcf(my_args):
+def parse_snp_info(my_args):
     """ Parse the vcf file into [[name,head,length],[name,head,length]...] format
     """
-    vcf_file = my_args.snp_in
+    snp_file = my_args.snp_in
 
     has_shown_info = False
-    base_file, file_type = os.path.splitext(vcf_file)
+    base_file, file_type = os.path.splitext(snp_file)
 
     # read vcf catalog
     catalog_file = "{}.catalog".format(base_file)
     if os.path.exists(catalog_file) \
-            and os.path.getmtime(catalog_file) > os.path.getmtime(vcf_file):
+            and os.path.getmtime(catalog_file) > os.path.getmtime(snp_file):
         with open(catalog_file, "r") as fp:
             catalog = fp.read().split(";")
         result = map(
@@ -110,11 +110,11 @@ def parse_vcf(my_args):
     # parse vcf
     else:
         if file_type == '.gz':
-            raise IOError('VCF file {} needs to be unzipped'.format(vcf_file))
+            raise IOError('SNP file {} needs to be unzipped'.format(snp_file))
         result = []
         name = ""
         head = 0
-        with open(vcf_file, 'r') as f:
+        with open(snp_file, 'r') as f:
             while True:
                 line = f.readline()
                 if line == "":
@@ -166,6 +166,7 @@ def data_generator_pysam(my_args, name, start, stop, is_bulk):
         bam_file = pysam.AlignmentFile(my_args.bulk, "rb")
     else:
         bam_file = pysam.AlignmentFile(my_args.bam, "rb")
+
     read_bases_list = []
     for pileup_column in bam_file.pileup(**my_arg):
         pos = pileup_column.reference_pos + 1
@@ -181,7 +182,6 @@ def data_generator_pysam(my_args, name, start, stop, is_bulk):
                     add_indels=True)
         except Exception as e:
             raise IOError("Pysam crashed! Unexpected Error: {}".format(e))
-            yield -1
 
         read_bases = ''.join(read_bases_list)
         if len(read_bases) == 0:
@@ -310,7 +310,9 @@ def write_vcf(my_args, version="2.0.0_NB"):
 
     if my_args.bulk != "":
         head_str += "##FORMAT=<ID=SO,Number=1,Type=String," \
-            "Description=\"Whether it is a somatic mutation.\">\n"
+            "Description=\"Whether it is a somatic mutation.\">\n" \
+            "##FORMAT=<ID=BN,Number=.,Type=String," \
+            "Description=\"Bulk Normal information for position.\">\n"
 
     eta_file = '{}.eta'.format(my_args.output)
     with open(eta_file, 'r') as f:
