@@ -330,19 +330,10 @@ def write_vcf(my_args, version="2.0.0_NB"):
         body_str = f.read()
     os.remove(body_file)
 
-    if my_args.zip_output:
-        if not os.path.splitext(my_args.output)[1] == '.gz':
-            my_args.output = '{}.gz'.format(my_args.output)
-
-        with gzip.open('my_args.output', 'wb') as fp_out:
-            if my_args.format == 'vcf':
-                fp_out.write(head_str.encode('UTF-8'))
-            fp_out.write(body_str.encode('UTF-8'))
-    else:
-        with open(my_args.output, "w") as fp_out:
-            if my_args.format == "vcf":
-                fp_out.write(head_str)
-            fp_out.write(body_str)
+    with open(my_args.output, "w") as fp_out:
+        if my_args.format == "vcf":
+            fp_out.write(head_str)
+        fp_out.write(body_str)
 
 
 if __name__ == '__main__':

@@ -199,8 +199,6 @@ def parse_args():
         default="vcf", help="Output file format. Default: vcf")
     parser.add_argument("--coverage", action="store_true", default=False,
         help="use \"--coverage\" to generate the coverage file at the same time")
-    parser.add_argument('--zip_output', action="store_true", default=False,
-        help="If flag is set, output is a gzip compressed file. Default: False")
     # Bulk related arguments
     parser.add_argument("--bulk", type=str, default="",
         help="bamfile of bulk normal DNA sequencing")
@@ -976,9 +974,6 @@ def read_bulk_mpileup(pileup, my_args):
 
 
 def bias_estimator(pos, tracked_data, my_args):
-    """ calculate bias
-    """
-
     be_kwy = []
     be_kw = []
     for i in tracked_data:
@@ -992,22 +987,19 @@ def bias_estimator(pos, tracked_data, my_args):
         if be_tmp1 <= 0:
             continue
 
-        be_tmp = bias_kernel(int(pos), int(i.pos), my_args.lamb) # K in the formula
-        be_kwy.append(be_tmp * be_tmp1 * be_tmp2)
-        be_kw.append(be_tmp * be_tmp1)
+        # K in the formula (# Equation 2)
+        if -my_args.lamb < pos - i.pos < my_args.lamb:
+            be_tmp = 0.75 * (1 - (float(pos - i.pos) / my_args.lamb) ** 2)
+            be_kwy.append(be_tmp * be_tmp1 * be_tmp2)
+            be_kw.append(be_tmp * be_tmp1)
+        else:
+            be_kwy.append(0.0)
+            be_kw.append(0.0)
     # Nadaraya-Watson kernel-weighted average
     if len(be_kwy) > 0 and sum(be_kw) > 0:
         return sum(be_kwy) / sum(be_kw)
-    # return args.bias when no neighboring heterozygous base
+    # No neighboring heterozygous base
     return my_args.bias
-
-
-def bias_kernel(bk_x0, bk_xi, lamb):
-    # Equation 2
-    if -lamb < bk_x0 - bk_xi < lamb:
-        return 0.75 * (1 - (float(bk_x0 - bk_xi) / lamb) ** 2)
-    else:
-        return 0.0
 
 
 def sc_caller(sc_candidate, sc_bias, min_frac):
