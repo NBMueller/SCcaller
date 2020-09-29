@@ -199,6 +199,8 @@ def parse_args():
         default="vcf", help="Output file format. Default: vcf")
     parser.add_argument("--coverage", action="store_true", default=False,
         help="use \"--coverage\" to generate the coverage file at the same time")
+    parser.add_argument('--zip_output', action="store_true", default=False,
+        help="If flag is set, output is a gzip compressed file. Default: False")
     # Bulk related arguments
     parser.add_argument("--bulk", type=str, default="",
         help="bamfile of bulk normal DNA sequencing")
@@ -966,7 +968,9 @@ def read_bulk_mpileup(pileup, my_args):
         return 'ref'
     # Variant supporting reads in bulk normal -> germline mutation
     if var_counts[-2][0] > 0:
-        return 'var({}{},{}{})'.format(*var_counts[-1], *var_counts[-2])
+        return 'var({}{},{}{})' \
+            .format(var_counts[-1][0], var_counts[-1][1], 
+                var_counts[-2][0], var_counts[-2][1])
     else:
         return 'var({}{})'.format(*var_counts[-1])
 
