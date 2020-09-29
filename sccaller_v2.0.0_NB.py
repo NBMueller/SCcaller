@@ -168,8 +168,8 @@ def parse_args():
     parser.add_argument("-d", "--wkdir", type=str, default="./",
         help="Work dir. Default: ./")
     # Cutoff/threshold related arguments
-    parser.add_argument("--minvar", type=int, default=4,
-        help="Min. # variant supporting reads. Default: 4")
+    parser.add_argument("--minvar", type=int, default=2,
+        help="Min. # variant supporting reads. Default: 2")
     parser.add_argument("-mvf", "--minvarfrac", type=float, default=0.2,
         help='Min. fraction of variant supporting reads for a 0/1 genotype. '
             'Default: 0.2')
@@ -644,7 +644,7 @@ def read_mpileup_vcf(pileup, my_args):
     var_names = ["A", "C", "G", "T"]
     var_counts = [read_base_list_without_i.count(i) for i in var_names]
     # Filter out mutations/bases that were not observed
-    name_filter = [i > 0 for i in var_counts]
+    name_filter = [i > my_args.minvar for i in var_counts]
     var_names = compress(var_names, name_filter)
     var_counts = compress(var_counts, name_filter)
 
@@ -674,7 +674,6 @@ def read_mpileup_vcf(pileup, my_args):
 
     var_all_str = ",".join(sorted(var_names))
     read_infos = [(j, base_q[i]) for i, j in enumerate(readbase_list_with_i)]
-    
     return PileupDataStruct(pileup[0], pileup[1], pileup[2], variant_str, r_num,
         v_num, len(var_names), read_infos,
         gt_class=geno_class, var_all=var_all_str)

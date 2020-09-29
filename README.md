@@ -28,6 +28,20 @@ python 2.7 or 3.X (not working with vcf catalog and bed output)
 numpy
 pysam(0.15.1) or samtools v.1.9+ (Other versions not tested)
 
+
+#####
+## FORK MODIFICATIONS
+
+* Adaptation for python 3.X
+* Implementation redone, simplified, and variables renamed for easier maintanance 
+* New arguments added: --minvarfrac, --debugging, --seed
+* If 'multiple-genotype' filter is set, all fulfill variant reads > minvar reads
+* FORMAT/GT is 0/1 now, if likelihood for it is highest and #var reads > #total reads * minvarfrac (previously: highest likelihood and 7 * #var reads > #ref reads)
+* Likelihood for wildtype adjusted (1/8 * theta instead of 1/8)
+* FORMAT/BN added to provide more detail why SO is True|False|NA
+
+
+
 #####
 ## USAGE
 
@@ -101,32 +115,3 @@ grep '0/1' cell.vcf | grep 'True' | awk '$7=="." && length($5)>1' | awk -F "[:,]
 ### III. Notes on X/Y chromosome in males and ploidy 
 
 Please note, sccaller was designed assuming diploidy genome and two copies of chromosomes. It cannot be used for calling mutations from X/Y chromosome of a male subject.
-
-#####
-## RELEASE NOTES
-
-v2.0.0, 2019.04.01, allowing parallel processing, optimizing I/O, optimizing pipeline, output in vcf format, and fixing bugs
-
-v1.21, 2018.08.18, fixing bugs
-
-v1.2, 2017.05.01, allow INDEL calling, release version
-
-v1.1.3, 2017.01.09, users can change the min mapQ, default to 40
-
-v1.1.2, 2016.12.30, fixing bugs
-
-v1.1.1, 2016.12.29, update read_mpileup to consider indels
-
-V1.1, 2016.07.25, fixing bugs, release version
-
-v1.0, 2016.04.26, release version
-
-v0.0.4, 2016.04.26, fixed bugs in readling mpileup file
-
-v0.0.3, 2016.04.22, read_mpilup function returns mindepth fails before returning reference genotype
-
-v0.0.3, 2016.04.22, default mapQ change from 20 to 40
-
-v0.0.2, 2016.04.19, fix bugs - jump mpileup file column not fit problem.
-
-v0.0.1, 2016.03, add likelihood ratio test based on null distribution from the data resampling.
