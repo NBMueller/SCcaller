@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-MULTIPLEGENOTYPE = "multiple_genotype"
-NOTENOUGHVARIANTS = "var_number"
+MULTIPLEGENOTYPE = 'multiple_genotype'
+NOTENOUGHVARIANTS = 'var_number'
 
 class OutLineStruct:
     def __init__(self, name, pos, ref, var, ref_num, var_num,lh, 
@@ -47,14 +47,14 @@ class OutLineStruct:
 
     def get_vcf_str(self, eta, min_var, min_var_frac):
         gt = self._get_gt(eta, min_var_frac)
-        if self.so != "":
-            format_str = "GT:SO:BN:AD:BI:GQ:FPL"
-            cell_str = "{}:{}:{}:{}:{:.3f}:{}:{}" \
+        if self.so != '':
+            format_str = 'GT:SO:BN:AD:BI:GQ:FPL'
+            cell_str = '{}:{}:{}:{}:{:.3f}:{}:{}' \
                 .format(gt, self._transform_so(), self.so, self.ad, self.bias,
                     self.gq, self.pl)
         else:
-            format_str = "GT:AD:BI:GQ:FPL"
-            cell_str = "{}:{}:{:.3f}:{}:{}" \
+            format_str = 'GT:AD:BI:GQ:FPL'
+            cell_str = '{}:{}:{:.3f}:{}:{}' \
                 .format(gt, self.ad, self.bias, self.gq, self.pl)
 
         filter_str = self._get_filter(min_var)
@@ -69,25 +69,25 @@ class OutLineStruct:
         lls = [2 * self.lh[0], self.lh[1] / eta, self.lh[2], self.lh[3]]
         max_ll_id = lls.index(max(lls))
         if max_ll_id < 2:
-            result_str = "0/0"
+            result_str = '0/0'
         elif max_ll_id == 2:
             # <DONE, NB>
             if self.var_num >= (self.var_num + self.ref_num) * min_var_frac:
             # <BUG, Original> Why: 7 * var > ref ???
             # if 7 * self.var_num > self.ref_num:
-                result_str = "0/1"
+                result_str = '0/1'
             else:
-                result_str = "0/0"
+                result_str = '0/0'
         else:
-            result_str = "1/1"
+            result_str = '1/1'
 
         if self.gt_class == 2:
-            if result_str == "0/0":
-                result_str = "1/1"
-            elif result_str == "0/1":
-                result_str = "1/2"
+            if result_str == '0/0':
+                result_str = '1/1'
+            elif result_str == '0/1':
+                result_str = '1/2'
             else:
-                result_str = "1/1"
+                result_str = '1/1'
 
         return result_str
 
@@ -98,23 +98,23 @@ class OutLineStruct:
         else:
             var_num = self.ref_num
 
-        if len(self.var.split(",")) < self.gt_num or var_num < min_var:
+        if len(self.var.split(',')) < self.gt_num or var_num < min_var:
             if var_num < min_var:
-                comment = '{},{}'.format(MULTIPLEGENOTYPE, NOTENOUGHVARIANTS)
+                comment = '{};{}'.format(MULTIPLEGENOTYPE, NOTENOUGHVARIANTS)
             else:
                 comment = MULTIPLEGENOTYPE
         else:
-            comment = "."
+            comment = '.'
         return comment
 
 
     def _transform_so(self):
-        if self.so == "ref":
-            return "True"
-        elif self.so.startswith("var"):
-            return "False"
+        if self.so == 'ref':
+            return 'True'
+        elif self.so.startswith('var'):
+            return 'False'
         else:
-            return "NA"
+            return 'NA'
 
 
 if __name__ == '__main__':
