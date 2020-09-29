@@ -5,6 +5,7 @@ import os
 import re
 import time
 import gzip
+from subprocess import Popen, PIPE
 # Additional libraries
 import pysam  # 0.15.1
 # SCcaller internal libraries
