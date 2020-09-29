@@ -29,12 +29,11 @@
 import sys
 import os
 import re
-import time
+from datetime import datetime
 import random
 import copy
 import argparse
 import logging
-from subprocess import Popen, PIPE
 import multiprocessing as mp
 from collections import Counter
 # Additional libraries
@@ -150,7 +149,8 @@ def parse_args():
             Xiao Dong, biosinodx@gmail.com, xiao.dong@einstein.yu.edu;
             Yujue Wang, spsc83@gmail.com
 
-            (Modifications & refactoring: nico.borgsmueller@bsse.ethz.ch)'''.format(VERSION)
+            (Modifications & refactoring: nico.borgsmueller@bsse.ethz.ch)''' \
+                .format(VERSION)
     )
     # Input related arguments
     parser.add_argument("-b", "--bam", type=str, required=True, 
@@ -243,8 +243,9 @@ def parse_args():
         args.output = '{}.calls.{}' \
             .format(os.path.splitext(args.bam)[0], args.format)
 
-    if os.path.exists(args.output): #TAMA
-        os.remove(args.output) #TAMA
+    if os.path.exists(args.output):
+        print('\n>>>WARNING: Output file {} exists and will be overwritten<<<\n' \
+            .format(args.output))
     for out_ending in (".coverage", ".reasoning"):
         if os.path.exists(get_my_filename(args.output, out_ending)):
             os.remove(get_my_filename(args.output, out_ending))
@@ -1491,8 +1492,11 @@ def main(my_args):
     logging.info("W quit. All done.")
 
 
-if __name__ == "__main__":
-    start = time.time()
+if __name__ == '__main__':
+    start = datetime.now()
     args = parse_args()
+    print('Start running SCcaller v{} at {:%Y%m%d_%H:%M:%S}' \
+        .format(VERSION, start))
     main(args)
-    print("Duration = {}s".format(str(time.time() - start)))
+    print('Stop running SCcaller (duration={} s)' \
+        .format(str(datetime.now() - start)))
