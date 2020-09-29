@@ -1,21 +1,11 @@
 #!/usr/bin/env python
 
 class BigForewordList:
-    """
-    the list only consider the location after the current
+    """ The list only consider the location after the current
     """
     def __init__(self, the_list):
         self.my_list = the_list
         self.pos = 0
-
-
-    def contain(self, element):
-        """
-        Determine if the element is in the List
-        :param element:
-        :return:
-        """
-        return element in self.my_list[self.pos:]
 
 
     def filter(self, func):
@@ -26,7 +16,6 @@ class BigForewordList:
 
 
     def get_element(self, index):
-        # type: (int) -> object
         if not self.my_list:
             return None
         if index >= 0:
@@ -47,17 +36,6 @@ class BigForewordList:
 
     def append(self, element):
         self.my_list.append(element)
-
-
-    def display_list(self):
-        print(self.my_list)
-
-
-    def get_foreword_list(self):
-        if self.my_list and self.pos < len(self.my_list):
-            return self.my_list[self.pos:]
-        else:
-            return []
 
 
     def get_current_element(self):

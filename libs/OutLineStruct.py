@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-MULTIPLEGENOTYPE = "multiple-genotype"
-NOTENOUGHVARIANTS = "No.variants<"
+MULTIPLEGENOTYPE = "multiple_genotype"
+NOTENOUGHVARIANTS = "var_number"
 
 class OutLineStruct:
     def __init__(self, name, pos, ref, var, ref_num, var_num,lh, 
@@ -100,8 +100,7 @@ class OutLineStruct:
 
         if len(self.var.split(",")) < self.gt_num or var_num < min_var:
             if var_num < min_var:
-                comment = '{},{}{}' \
-                    .format(MULTIPLEGENOTYPE, NOTENOUGHVARIANTS, min_var)
+                comment = '{},{}'.format(MULTIPLEGENOTYPE, NOTENOUGHVARIANTS)
             else:
                 comment = MULTIPLEGENOTYPE
         else:
