@@ -215,9 +215,9 @@ def parse_args():
     # Miscellaneous arguments
     parser.add_argument("-e", "--engine", type=str, choices=["pysam", "samtools"],
         default="pysam", help="Pileup engine. Default: pysam")
-    parser.add_argument("-w", "--work_num", type=int, default=10,
+    parser.add_argument("-w", "--work_num", type=int, default=100,
         help='Number of threads to use. If you run into memory issues, try '
-            'increasing the number. Default: 10')
+            'increasing the number. Default: 100')
     parser.add_argument("-n", "--cpu_num", type=int, default=1,
         help="Num. processes. Default: 1")
     parser.add_argument("--debug", action='store_true',
