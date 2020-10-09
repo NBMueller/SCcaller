@@ -38,6 +38,7 @@ pysam(0.15.1) or samtools v.1.9+ (Other versions not tested)
 * If 'multiple-genotype' filter is set, all fulfill variant reads > minvar reads
 * FORMAT/GT is 0/1 now, if likelihood for it is highest and #var reads > #total reads * minvarfrac (previously: highest likelihood and 7 * #var reads > #ref reads)
 * Likelihood for wildtype adjusted (1/8 * theta instead of 1/8)
+* LLR alpha set to 0.05 (instead of 0.01)
 * FORMAT/BN added to provide more detail why SO is True|False|NA
 
 
