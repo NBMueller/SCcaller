@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # Standard libraries
-import os
+import os 
 import re
 import time
 import gzip

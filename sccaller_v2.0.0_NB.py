@@ -137,14 +137,6 @@ def compress(l, f):
 def parse_args():
     parser = argparse.ArgumentParser(
         prog='SCcaller',
-        usage='''\npython {}
-            [-h] [-d WKDIR] [-l LAMB] [--bias NUM] [--minvar NUM]
-            [--mapq NUM] [--min_depth NUM] [--RD NUM] [--null NUM]
-            [--bulk BAM] [--bulk_min_depth NUM] [--bulk_min_mapq NUM]
-            [--bulk_min_var NUM] [--format {{bed,vcf}}] [--head NUM]
-            [--tail NUM] [-e {{pysam, samtools}}] [--cpu_num NUM] [-w NUM]
-            [-n NUM] -t {{dbsnp,hsnp}} -b BAM -f FASTA -s
-            SNP_IN -o OUTPUT'''.format(__file__),
         description='''SCcaller v{}_NB;
             Xiao Dong, biosinodx@gmail.com, xiao.dong@einstein.yu.edu;
             Yujue Wang, spsc83@gmail.com
@@ -989,6 +981,7 @@ def bias_estimator(pos, tracked_data, my_args):
 
         # K in the formula (# Equation 2)
         if -my_args.lamb < pos - i.pos < my_args.lamb:
+            # Equation 3
             be_tmp = 0.75 * (1 - (float(pos - i.pos) / my_args.lamb) ** 2)
             be_kwy.append(be_tmp * be_tmp1 * be_tmp2)
             be_kw.append(be_tmp * be_tmp1)
@@ -1054,7 +1047,7 @@ def get_my_filename(output, suffix):
     return os.path.join(os.path.dirname(output), file_name)
 
 
-def calculate_eta(list_var_buf, list_var_tag):
+def calculate_eta(list_var_buf, list_var_tag, alpha=0.05):
     allele_nums = []
     bias_list = []
     for i, var_tag in enumerate(list_var_tag):
@@ -1078,7 +1071,7 @@ def calculate_eta(list_var_buf, list_var_tag):
         major = np.random.randint(2)
         if major == 0:
             f_true = 0.5 * 0.5 / bias_list[i]
-        if major == 1:
+        else:
             f_true = 0.5 * bias_list[i] / 0.5
         L_true = (1 - f_true) ** ref * f_true ** alt
         ## if L_filter/true is 0, assign a very small value
@@ -1093,8 +1086,9 @@ def calculate_eta(list_var_buf, list_var_tag):
         else:
             LLR[i] = 10000
 
-    co_001 = np.percentile(LLR, 99)
-    result = 10 ** -co_001
+    co = np.percentile(LLR, int(100 - alpha * 100))
+    result = 10 ** -co
+
     return result
 
 
@@ -1281,6 +1275,7 @@ def control(my_args, snp_pos_subset, queue, name, head, stop, worker_id):
 
     # Pileup of single cell [tumor] sample
     pileup_source = io.data_generator(my_args, name, my_start, my_stop, False)
+
     if my_args.bulk != '':
         # Pileup of bulk normal sample
         bulk_pileup_source = io.data_generator(my_args, name, head, stop, True)
@@ -1295,7 +1290,6 @@ def control(my_args, snp_pos_subset, queue, name, head, stop, worker_id):
     main_index = 0
     while 1:
         pileup = next(pileup_source)
-
         if pileup is None:
             if my_args.coverage and len(coverage_list) > 0:
                 done_data = QueueData(worker_id, WORKCOVERAGE, mode=WORKDONE)
@@ -1400,16 +1394,13 @@ def main(my_args):
         my_args.work_num = 1
         if my_args.seed == -1:
             my_args.seed = 1
-
-    if my_args.seed == -1:
-        seed = np.random.randint(0, 2 ** 32 - 1)
-        np.random.seed(seed)
-    else:
-        np.random.seed(my_args.seed)
-
-    if my_args.debug:
         print("\nRunning SCcaller v{} in debugging mode".format(VERSION))
         print('parsing vcf...')
+
+    if my_args.seed == -1:
+        my_args.seed = np.random.randint(0, 2 ** 32 - 1)
+    np.random.seed(my_args.seed)
+
     logging.info("parsing SNP vcf...")
     snp_info = io.parse_snp_info(my_args)
 
@@ -1421,6 +1412,7 @@ def main(my_args):
     if my_args.tail == -1 or my_args.tail > len(fasta_info):
         my_args.tail = len(fasta_info)
 
+    # Write arguments to log file for reproducability
     logging.info("args: {}".format(my_args))
 
     queue = mp.Manager().Queue()
