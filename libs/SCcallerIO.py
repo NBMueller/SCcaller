@@ -302,8 +302,7 @@ def write_vcf(my_args, version='2.0.0_NB'):
         '##FORMAT=<ID=BI,Number=1,Type=Float,Description="Amplification Bias">\n' \
         '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">\n' \
         '##FORMAT=<ID=FPL,Number=4,Type=Integer,' \
-            'Description="Phred scaled likelihood of: sequencing noise, ' \
-            'amplification artifact, heterozygous SNV, homozygous SNV">\n' \
+            'Description="Phred scaled likelihood of: REF/REF, REF/ALT, ALT/ALT">\n' \
         .format(time.strftime('%Y:%m:%d-%H:%M:%S', time.localtime()), version,
             my_args.fasta, MULTIPLEGENOTYPE, NOTENOUGHVARIANTS, my_args.minvar)
 

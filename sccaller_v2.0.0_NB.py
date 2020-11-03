@@ -41,7 +41,7 @@ import numpy as np
 # SCcaller internal libraries
 import libs.SCcallerIO as io
 from libs.BigForewordList import BigForewordList
-from libs.OutLineStruct import OutLineStruct, MULTIPLEGENOTYPE, NOTENOUGHVARIANTS
+from libs.OutLineStruct import OutLineStruct
 
 
 if float(sys.version[:3]) != 2.7:
@@ -59,7 +59,6 @@ WORKVAR = 1
 WORKCOVERAGE = 2
 WORKVCF = 3
 WORKDONE = 'done'
-WORKERROR = 'error'
 WORKEXIT = 'exit'
 
 # Fixed default values
@@ -95,16 +94,16 @@ class QueueData:
 
 
 class GoldenHetero:
-    def __init__(self, name, pos, ref_num, alt_num):
+    def __init__(self, name, pos, ref_num, var_num):
         self.name = name  # type: str
         self.pos = pos  # type: int
         self.ref_num = ref_num  # type: int
-        self.alt_num = alt_num  # type: int
+        self.var_num = var_num  # type: int
 
 
     def __str__(self):
         return '{}:{}\tAD:{},{}' \
-            .format(self.name, self.pos, self.ref_num, self.alt_num)
+            .format(self.name, self.pos, self.ref_num, self.var_num)
 
 
 class PileupDataStruct:
@@ -128,10 +127,6 @@ class PileupDataStruct:
         return '{}:{}\tref:{}({}),alt:{}({})' \
             .format(self.name, self.pos, self.ref_base, self.ref_num,
                 self.var_base, self.var_num)
-
-
-def compress(l, f):
-    return [j for i, j in enumerate(l) if f[i]]
 
 
 def parse_args():
@@ -162,9 +157,11 @@ def parse_args():
     # Cutoff/threshold related arguments
     parser.add_argument("--minvar", type=int, default=2,
         help="Min. # variant supporting reads. Default: 2")
-    parser.add_argument("-mvf", "--minvarfrac", type=float, default=0.2,
+    parser.add_argument("-mvf", "--minvcalarfrac", type=float, default=0.2,
         help='Min. fraction of variant supporting reads for a 0/1 genotype. '
             'Default: 0.2')
+    parser.add_argument('-a', '--lrt_alpha', default=0.05, type=float,
+        help='Significance level for calculating eta with LRT via simulations')
     parser.add_argument("--mapq", type=int, default=40,
         help="Min. mapQ. Default: 40")
     parser.add_argument("--min_depth", type=int, default=10,
@@ -242,7 +239,16 @@ def parse_args():
         if os.path.exists(get_my_filename(args.output, out_ending)):
             os.remove(get_my_filename(args.output, out_ending))
 
+    if args.format == 'bed':
+        args.worker_type = WORKVAR 
+    else:
+        args.worker_type = WORKVCF
+
     return args
+
+
+def compress(l, f):
+    return [j for i, j in enumerate(l) if f[i]]
 
 
 def parse_indel(indel_str, indel_list_out):
@@ -364,7 +370,7 @@ def rebuild_read_base_list(read_base_without_i, indel_name_list, indel_count_lis
     return read_base_list
 
 
-def read_mpileup(pileup, rm_minvar, min_mapq, rm_mindepth, is_gh, worker_id):
+def read_mpileup(pileup, rm_minvar, min_mapq, rm_mindepth, is_gh):
     """ screenfor mutations, filter out alignments that do not meet the 
         requirements of mapQ, and convert the data format
     :param is_gh:
@@ -508,13 +514,13 @@ def choose_random(candidate, num):
 
 
 def get_variant_info(var_names, basis, read_bases_filtered, geno_class):
-    """ calculate the variant's name_str, ref_num and alt_num
+    """ calculate the variant's name_str, ref_num and var_num
         if variant is more than 2, choose 2 according to basis.
         If basis doesn't work, choose randomly.
     :param basis: [reads, map_q, base_q]
     :param var_names:
     :param ead_bases_filtered:
-    :return: [variant_str, ref_num, alt_num]
+    :return: [variant_str, ref_num, var_num]
     """
     if len(var_names) == 0:
         var_info = ("", 0, 0)
@@ -727,8 +733,7 @@ def get_golden_hetero(my_args, pileup, worker_id, min_map_q=20):
     :return: None  should skip
     """
 
-    read_base = read_mpileup(pileup, 0, min_map_q, my_args.min_depth, True,
-        worker_id)
+    read_base = read_mpileup(pileup, 0, min_map_q, my_args.min_depth, True)
     if not read_base or read_base == -1:
         return None
     ref_count = len([1 for i in read_base if i in [pileup[2], ".", ","]])
@@ -818,35 +823,6 @@ def window_data_one_chromosome(center_pos, gh_list, lamb, gh_list_end,
     return gh_list.filter(lambda x: left_edge.pos <= x.pos <= right_edge.pos)
 
 
-# <INFO, NB> Calculation of GQ value (phred-scaled genotype quality score)
-# Replaced with np array for clarity and performance
-def get_gq(log_probs):
-    # type: (float, float, float) -> str
-    while 1:
-        probs = 10 ** log_probs
-        if probs.sum() - probs.min() != 0:
-            break
-        else:
-            log_probs += 1
-
-    norm_probs = probs / probs.sum()
-    value = 1 - norm_probs.max()
-
-    if value == 0:
-        return 99
-    else:
-        return int(round(-10 * np.log10(value)))
-
-
-def get_pl(log_lh):
-    pl_raw = -10 * log_lh
-    # <DONE, NB>
-    pl = pl_raw - pl_raw.min()
-    # <BUG, Original> Dont normalize Phred scores to smallest = 0
-    # pl = pl_raw
-    return '{:.0f},{:.0f},{:.0f},{:.0f}'.format(*pl)
-
-
 def differential(my_args, gh_list, rel_pileup, queue, worker_id, gh_list_end,
         current_pos):
     """
@@ -879,34 +855,27 @@ def differential(my_args, gh_list, rel_pileup, queue, worker_id, gh_list_end,
     if tracked_data is None:
         return False
 
-    bias = bias_estimator(rel_pileup.pos, tracked_data, my_args)
+    if tracked_data:
+        bias = bias_estimator(rel_pileup.pos, tracked_data, my_args.lamb)
+    else:
+        bias = my_args.bias
 
     # <INFO, NB> Calculation of basic values for GQ and PL
     # rr = Sequencing  Noise (rr_u = log10(rr))
     # ra = Amplification Artefact/Error (ra_u = log10(ra))
     # rm = Heterozygous SNV (rm_u = log10(rm))
     # mm = Homozygous SNV (mm_u = log10(mm))
+    # <DONE, NB>
+    # First two values, rr and ra, are added to get a single likelihood for REF/REF
     log_lh = sc_caller(rel_pileup, bias, my_args.null)
-    lh = 10 ** log_lh
-
-    if my_args.format == "bed":
-        worker_type = WORKVAR
-        gq = None
-        pl = None
-    else:
-        worker_type = WORKVCF
-        # <DONE, NB>
-        gq = get_gq(np.array([np.log10(lh[0] + lh[1]), log_lh[2], log_lh[3]]))
-        # <BUG, Original> Ignoring the sequencing  noise
-        # gq = get_gq(log_lh[1:])
-        pl = get_pl(log_lh)
 
     outline = OutLineStruct(rel_pileup.name, rel_pileup.pos, 
         rel_pileup.ref_base, rel_pileup.var_base, rel_pileup.ref_num,
-        rel_pileup.var_num, lh, rel_pileup.so, rel_pileup.var_all, bias, gq, pl, 
+        rel_pileup.var_num, log_lh, rel_pileup.so, rel_pileup.var_all, bias, 
         rel_pileup.gt_num, rel_pileup.gt_class)
  
-    queue.put(QueueData(worker_id, worker_type, outline=outline), block=False)
+    queue.put(QueueData(worker_id, my_args.worker_type, outline=outline),
+        block=False)
     return True
 
 
@@ -965,34 +934,32 @@ def read_bulk_mpileup(pileup, my_args):
         return 'var({}{})'.format(*var_counts[-1])
 
 
-def bias_estimator(pos, tracked_data, my_args):
-    be_kwy = []
-    be_kw = []
-    for i in tracked_data:
-        try:
-            be_tmp1 = float(i.ref_num + i.alt_num)
-            be_tmp2 = max(i.ref_num, i.alt_num) / be_tmp1
-        except AttributeError:
-            be_tmp1 = float(i.ref_num + i.var_num)
-            be_tmp2 = max(i.ref_num, i.var_num) / be_tmp1
+def bias_estimator(pos, tracked_data, lamb):
+    K = np.zeros((len(tracked_data), 2))
 
-        if be_tmp1 <= 0:
-            continue
+    # Equation 2
+    for i, data in enumerate(tracked_data):
+        be_tmp1 = float(data.ref_num + data.var_num)
+        be_tmp2 = max(data.ref_num, data.var_num) / be_tmp1
 
-        # K in the formula (# Equation 2)
-        if -my_args.lamb < pos - i.pos < my_args.lamb:
+        t  = pos - data.pos
+        if -lamb <= t <= lamb:
             # Equation 3
-            be_tmp = 0.75 * (1 - (float(pos - i.pos) / my_args.lamb) ** 2)
-            be_kwy.append(be_tmp * be_tmp1 * be_tmp2)
-            be_kw.append(be_tmp * be_tmp1)
-        else:
-            be_kwy.append(0.0)
-            be_kw.append(0.0)
+            be_tmp = 0.75 * (1 - (float(t) / lamb) ** 2)
+            # <DONE, NB>
+            K[i, 0] = be_tmp * be_tmp2
+            K[i, 1] = be_tmp
+            # <BUG, Original> Adding an additional factor be_tmp1 to 
+            #   nominator and denominator
+            # K[i, 0] = be_tmp * be_tmp1 * be_tmp2
+            # K[i, 1] = be_tmp * be_tmp1
+
+    K_sum = K.sum(axis=0)
     # Nadaraya-Watson kernel-weighted average
-    if len(be_kwy) > 0 and sum(be_kw) > 0:
-        return sum(be_kwy) / sum(be_kw)
-    # No neighboring heterozygous base
-    return my_args.bias
+    if K_sum[1] == 0:
+        return 1
+    else:
+        return K_sum[0] / K_sum[1]
 
 
 def sc_caller(sc_candidate, sc_bias, min_frac):
@@ -1018,27 +985,26 @@ def sc_caller(sc_candidate, sc_bias, min_frac):
         # <BUG, Original> Ignoring the 1 - F_K(\theta) if ref count > alt count
         f_h2 = 1
   
-    log_lh = np.zeros(4)
-    for idx, f in enumerate([min_frac, f_h0, f_h1, f_h2]):
-        log_lh[idx] = np.log10(
-            [P_b_GG(i, ref, mut, f) for i in sc_candidate.read_infos]).sum()
+    f_v = np.array([min_frac, f_h0, f_h1, f_h2])
+    lh_m = np.zeros((len(sc_candidate.read_infos), 4))
+    for idx, bp in enumerate(sc_candidate.read_infos):
+        # Equation (7), calculate lg Probability value
+        e = 10 ** (-bp[1] / 10.0)
+        if bp[0] in [',', '.', ref]:
+            lh_m[idx] = f_v * e / 3 + (1 - f_v) * (1 - e)
+        elif bp[0] == mut:
+            lh_m[idx] = (1 - f_v) * e / 3 + f_v * (1 - e)
+        else:
+            lh_m[idx] = e / 3
 
-    return log_lh
-
-
-def P_b_GG(bp, ref, mut, f):
-    """ Equation (7), calculate lg Probability value
-    """
-    e = 10 ** (-bp[1] / 10.0)
-
-    if bp[0] in [',', '.', ref]:
-        a = f * e / 3 + (1 - f) * (1 - e)
-    elif bp[0] == mut:
-        a = (1 - f) * e / 3 + f * (1 - e)
+    log_lh = np.log10(lh_m).sum(axis=0)
+    # Add noise and artifact likelihoods in log space for REF/REF log-likelihood
+    if log_lh[0] > log_lh[1]:
+        log_lh_wt = log_lh[0] + np.log10(1 + 10 ** (log_lh[1] - log_lh[0]))
     else:
-        a = e / 3
+        log_lh_wt = log_lh[1] + np.log10(1 + 10 ** (log_lh[0] - log_lh[1]))
 
-    return a
+    return np.array([log_lh_wt, log_lh[2], log_lh[3]])
 
 
 def get_my_filename(output, suffix):
@@ -1047,49 +1013,84 @@ def get_my_filename(output, suffix):
     return os.path.join(os.path.dirname(output), file_name)
 
 
-def calculate_eta(list_var_buf, list_var_tag, alpha=0.05):
-    allele_nums = []
-    bias_list = []
-    for i, var_tag in enumerate(list_var_tag):
-        if not var_tag:
-            break
-        for queue_data in list_var_buf[i]:
-            allele_nums.append(queue_data.outline.total_num)
-            bias_list.append(queue_data.outline.bias) 
+# def calculate_eta(list_var_buf, list_var_tag, alpha=0.05):
+#     allele_nums = []
+#     bias_list = []
+#     for i, var_tag in enumerate(list_var_tag):
+#         if not var_tag:
+#             break
+#         for queue_data in list_var_buf[i]:
+#             allele_nums.append(queue_data.outline.total_num)
+#             bias_list.append(queue_data.outline.bias) 
     
-    allele_nums = allele_nums[:CUTOFFNUM]
-    bias_list = bias_list[:CUTOFFNUM]
+#     allele_nums = allele_nums[:CUTOFFNUM]
+#     bias_list = bias_list[:CUTOFFNUM]
 
-    LLR = np.zeros(len(allele_nums))
-    for i, allele_num in enumerate(allele_nums):
-        f_artifact = 0.125 * bias_list[i] / 0.5
-        # bin (depth(number of trials),prob_success)
-        alt = np.random.binomial(allele_num, f_artifact)
-        ref = allele_num - alt
-        L_filter = (1 - f_artifact) ** ref * f_artifact ** alt
-        ## random select major allele
-        major = np.random.randint(2)
-        if major == 0:
-            f_true = 0.5 * 0.5 / bias_list[i]
-        else:
-            f_true = 0.5 * bias_list[i] / 0.5
-        L_true = (1 - f_true) ** ref * f_true ** alt
-        ## if L_filter/true is 0, assign a very small value
-        if L_filter == 0:
-            L_filter = 10 ** -100
-        if L_true == 0:
-            L_true = 10 ** -100
+#     LLR = np.zeros(len(allele_nums))
+#     for i, allele_num in enumerate(allele_nums):
+#         f_artifact = 0.125 * bias_list[i] / 0.5
+#         # bin (depth(number of trials),prob_success)
+#         alt = np.random.binomial(allele_num, f_artifact)
+#         ref = allele_num - alt
+#         L_H0 = (1 - f_artifact) ** ref * f_artifact ** alt
+#         # random select major allele
+#         major = np.random.randint(2)
+#         if major == 0:
+#             f_true = 0.5 * 0.5 / bias_list[i]
+#         else:
+#             f_true = 0.5 * bias_list[i] / 0.5
+#         L_H1 = (1 - f_true) ** ref * f_true ** alt
+#         # if L_H0/L_H1 is 0, assign a very small value
+#         if L_H0 == 0:
+#             L_H0 = 10 ** -100
+#         if L_H1 == 0:
+#             L_H1 = 10 ** -100
 
-        ratio = L_filter / L_true
-        if ratio != 0:
-            LLR[i] = -np.log10(ratio)
-        else:
-            LLR[i] = 10000
+#         ratio = L_H0 / L_H1
+#         if ratio != 0:
+#             LLR[i] = -np.log10(ratio)
+#         else:
+#             LLR[i] = 10000
 
-    co = np.percentile(LLR, int(100 - alpha * 100))
-    result = 10 ** -co
+#     co = np.percentile(LLR, int(100 - alpha * 100))
+#     result = 10 ** -co
 
-    return result
+#     return result
+
+
+def calculate_eta(list_var_buf, list_var_tag, alpha=0.05):
+    idx = 0
+    LLR = np.zeros(CUTOFFNUM)
+
+    for i, var_tag in enumerate(list_var_tag):
+        if not var_tag or idx >= CUTOFFNUM:
+            break
+
+        for queue_data in list_var_buf[i]:
+            read_count = queue_data.outline.total_num
+            bias = queue_data.outline.bias
+
+            f_artifact = 0.125 * bias
+            # Sample read counts under H_0 from a binomial
+            alt = np.random.binomial(read_count, f_artifact)
+            ref = read_count - alt
+            L_H0 = ref * np.log10(1 - f_artifact) + alt * np.log10(f_artifact)
+        
+            # Random select major allele
+            if np.random.random() < 0.5:
+                f_mut = 1 - bias
+            else:
+                f_mut = bias
+            L_H1 = ref * np.log10(1 - f_mut) + alt * np.log10(f_mut)
+
+            try:
+                LLR[idx] = L_H0 - L_H1
+            except IndexError:
+                break
+            else:
+                idx += 1
+
+    return 10 ** np.percentile(LLR[:idx], alpha * 100)
 
 
 def write_result(queue, args, name):
@@ -1134,7 +1135,8 @@ def write_result(queue, args, name):
                         fp_cov.write("\n".join(cov_list))
                 if eta == -1:
                     if get_current_cutoff_num(list_var_buf, list_var_tag) > 0:
-                        eta = calculate_eta(list_var_buf, list_var_tag)
+                        eta = calculate_eta(list_var_buf, list_var_tag,
+                            args.lrt_alpha)
                         for i, var_buf in enumerate(list_var_buf):
                             if var_buf:
                                 write_do([j.outline for j in var_buf],
@@ -1157,7 +1159,8 @@ def write_result(queue, args, name):
                     # Try to calculate eta, write data
                     if get_current_cutoff_num(list_var_buf, list_var_tag) \
                             >= CUTOFFNUM and eta == -1:
-                        eta = calculate_eta(list_var_buf, list_var_tag)
+                        eta = calculate_eta(list_var_buf, list_var_tag,
+                            args.lrt_alpha)
                     if eta != -1:
                         for i, var_buf in enumerate(list_var_buf):
                             if i < current_handling_worker:
@@ -1173,12 +1176,6 @@ def write_result(queue, args, name):
                                 current_handling_worker += 1
                             else:
                                 break
-                elif queue_data.mode == WORKERROR:
-                    logging.info("worker{} pysam crashed. Data cleaned" \
-                        .format(w_id))
-                    list_var_tag[w_id] = False
-                    list_var_buf[w_id] = []
-                    list_coverage_buf[w_id] = []
                 else:
                     list_var_buf[w_id].append(queue_data)
 
@@ -1227,19 +1224,19 @@ def write_do(data_list, work_type, worker_id, fp_out, eta, fp_reasoning, my_args
         data_list = [j for i, j in enumerate(data_list) if res_filter[i]]
 
         if len(data_list) > 0:
-            fp_out.write("\n".join([i.get_varcall_str() for i in data_list]))
-            fp_out.write("\n")
+            fp_out.write('\n'.join([i.get_varcall_str() for i in data_list]))
+            fp_out.write('\n')
         if my_args.bulk != "" and data_list:
-            fp_reasoning.write("\n".join(
+            fp_reasoning.write('\n'.join(
                 [i.get_reason_str() for i in data_list]))
-            fp_reasoning.write("\n")
+            fp_reasoning.write('\n')
     elif work_type == WORKVCF:
-        fp_out.write("\n".join(
+        fp_out.write('\n'.join(
             [i.get_vcf_str(eta, my_args.minvar, my_args.minvarfrac) \
                 for i in data_list]))
-        fp_out.write("\n")
+        fp_out.write('\n')
 
-    logging.debug("worker{} write len={}".format(worker_id, len(data_list)))
+    logging.debug('worker{} write len={}'.format(worker_id, len(data_list)))
 
 
 def control(my_args, snp_pos_subset, queue, name, head, stop, worker_id):
@@ -1253,7 +1250,7 @@ def control(my_args, snp_pos_subset, queue, name, head, stop, worker_id):
     :type stop: int
     :type head: int
     """
-    logging.info("worker {} begin! name={} head={} tail={} len={} engine={}" \
+    logging.info('worker {} start! name={} head={} tail={} len={} engine={}' \
         .format(worker_id, name, head, stop, stop - head, my_args.engine))
 
     snp_list = BigForewordList(snp_pos_subset)
@@ -1300,28 +1297,27 @@ def control(my_args, snp_pos_subset, queue, name, head, stop, worker_id):
         # append the relevant pileups into rel_pileups
         if head <= pileup[1] < stop:
             # Check if pileup is relevant/passes filters
-            if my_args.format == "bed":
+            if my_args.worker_type == WORKVAR:
                 rel_pileup = read_mpileup(copy.copy(pileup),
-                    my_args.minvar, my_args.mapq, my_args.min_depth, False,
-                    worker_id) 
+                    my_args.minvar, my_args.mapq, my_args.min_depth, False) 
             else:
                 rel_pileup = read_mpileup_vcf(copy.copy(pileup), my_args)
 
             if rel_pileup and rel_pileup != -1:
-                if my_args.bulk != "":
+                if my_args.bulk != '':
                     # calculate so
                     result = so_source.send(rel_pileup.pos)
                     rel_pileup.so = result
                 else:
-                    rel_pileup.so = ""
+                    rel_pileup.so = ''
                 rel_pileups.append(rel_pileup)
 
             # calculate coverage
             if my_args.coverage:
-                if rel_pileup and (my_args.bulk == "" \
+                if rel_pileup and (my_args.bulk == '' \
                         or (rel_pileup == -1 or (rel_pileup != -1 \
-                            and (rel_pileup.so == "" or rel_pileup.so == "ref" \
-                                or rel_pileup.so.startswith("var"))))):
+                            and (rel_pileup.so == '' or rel_pileup.so == 'ref' \
+                                or rel_pileup.so.startswith('var'))))):
 
                     if not coverage_list:  # is empty
                         coverage_list.append([name, pileup[1], pileup[1]])
@@ -1347,7 +1343,7 @@ def control(my_args, snp_pos_subset, queue, name, head, stop, worker_id):
             if counter == 10000:
                 counter = 0
                 main_index += 1
-                print("w{:<3d} {:>6}/{:<6}"\
+                print('w{:<3d} {:>6}/{:<6}'\
                     .format(worker_id, main_index * 10000, total_work))
         # Screen SNP list
         if not gh_list_end:
@@ -1371,49 +1367,48 @@ def control(my_args, snp_pos_subset, queue, name, head, stop, worker_id):
         if diff_success:
             rel_pileups.move_foreword()
 
-    worker_type = WORKVAR if my_args.format == "bed" else WORKVCF
-    done_data = QueueData(worker_id, worker_type, mode=WORKDONE)
+    done_data = QueueData(worker_id, my_args.worker_type, mode=WORKDONE)
     queue.put(done_data, block=False)
 
     if my_args.debug:
         print('w{:<3d} I am done!'.format(worker_id))
-    logging.info("worker {} Quit!".format(worker_id))
+    logging.info('worker {} stop!'.format(worker_id))
 
 
 def main(my_args):
     # Init logging
-    log_file = get_my_filename(my_args.output, "_sccaller_{:0>2d}to{:0>2d}.log" \
+    log_file = get_my_filename(my_args.output, '_sccaller_{:0>2d}to{:0>2d}.log' \
         .format(my_args.head, my_args.tail))
     logging.basicConfig(filename=log_file, level=logging.DEBUG,
-        format=LOG_FORMAT, filemode="w")
+        format=LOG_FORMAT, filemode='w')
 
-    logging.info("Welcome to SCcaller v{}".format(VERSION))
+    logging.info('Welcome to SCcaller v{}'.format(VERSION))
 
     if my_args.debug:
         my_args.cpu_num = 1
         my_args.work_num = 1
         if my_args.seed == -1:
             my_args.seed = 1
-        print("\nRunning SCcaller v{} in debugging mode".format(VERSION))
+        print('\nRunning SCcaller v{} in debugging mode'.format(VERSION))
         print('parsing vcf...')
 
     if my_args.seed == -1:
         my_args.seed = np.random.randint(0, 2 ** 32 - 1)
     np.random.seed(my_args.seed)
 
-    logging.info("parsing SNP vcf...")
+    logging.info('parsing SNP vcf...')
     snp_info = io.parse_snp_info(my_args)
 
     if my_args.debug:
         print('parsing fasta...')
-    logging.info("parsing reference fasta...")
+    logging.info('parsing reference fasta...')
     fasta_info = io.parse_fasta(my_args.fasta)
 
     if my_args.tail == -1 or my_args.tail > len(fasta_info):
         my_args.tail = len(fasta_info)
 
     # Write arguments to log file for reproducability
-    logging.info("args: {}".format(my_args))
+    logging.info('args: {}'.format(my_args))
 
     queue = mp.Manager().Queue()
     # Start the operation process
@@ -1427,18 +1422,18 @@ def main(my_args):
         
         if my_args.debug:
             print('loading vcf...')
-        logging.info("loading vcf...")
+        logging.info('loading vcf...')
         snp_pos = np.array(io.load_snp_pos(name, snp_info, my_args.snp_in))
 
         if my_args.debug:
             print('SCcaller v2.0.0 is handling chromosome {}...'.format(name))
-        logging.debug("name={}; #snps={}".format(name, len(snp_pos)))
+        logging.debug('name={}; #snps={}'.format(name, len(snp_pos)))
 
         # Calculate the amount of tasks for each process
         no_bases = stop - start
         step = int(np.ceil(no_bases / float(my_args.work_num)))
         if step < my_args.lamb:
-            logging.info("work_num={} is too large for chr={}. Using 1 instead." \
+            logging.info('work_num={} is too large for chr={}. Using 1 instead.' \
                 .format(my_args.work_num, name))
             my_args.work_num = 1
             step = no_bases
@@ -1457,7 +1452,7 @@ def main(my_args):
             tail = head + step
             if woker_id != 0:
                 if (head - my_args.lamb) < 0:
-                    err_str = "lamb={} is too large. Fasta: name={} ({} - {})." \
+                    err_str = 'lamb={} is too large. Fasta: name={} ({} - {}).' \
                         .format(my_args.lamb, name, start, stop)
                     logging.critical(err_str)
                     raise RuntimeError(err_str)
@@ -1476,12 +1471,11 @@ def main(my_args):
             process_pool.join()
 
         # Exit the W process
-        worker_type = WORKVAR if my_args.format == "bed" else WORKVCF
-        queue.put(QueueData(0, worker_type, mode=WORKEXIT), block=True)
+        queue.put(QueueData(0, my_args.worker_type, mode=WORKEXIT), block=True)
         proc_write_result.join()
 
     io.write_vcf(my_args, VERSION)
-    logging.info("W quit. All done.")
+    logging.info('W quit. All done.')
 
 
 if __name__ == '__main__':

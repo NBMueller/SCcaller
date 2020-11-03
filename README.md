@@ -3,7 +3,7 @@ Single Cell Caller (SCcaller) - NB fork - Identify single nucleotide variations 
 
 Version 2.0.0_NB
 
-Updated date: 2020.09.24
+Updated date: 2020.10.27
 
 Cite us:
 
@@ -23,7 +23,7 @@ Licensed under the GNU Affero General Public License version 3 or later
 #####
 ## DEPENDENCIES
 
-python 2.7 or 3.X (not working with vcf catalog and bed output)
+python 2.7 or 3.X (not tested with vcf catalog and bed output)
 
 numpy
 pysam(0.15.1) or samtools v.1.9+ (Other versions not tested)
@@ -38,9 +38,9 @@ pysam(0.15.1) or samtools v.1.9+ (Other versions not tested)
 * If 'multiple-genotype' filter is set, all fulfill variant reads > minvar reads
 * FORMAT/GT is 0/1 now, if likelihood for it is highest and #var reads > #total reads * minvarfrac (previously: highest likelihood and 7 * #var reads > #ref reads)
 * Likelihood for wildtype adjusted (1/8 * theta instead of 1/8)
-* LLR alpha set to 0.05 (instead of 0.01)
 * FORMAT/BN added to provide more detail why SO is True|False|NA
-
+* "Likelihood ratio test" updated: calculations in log space and updated to be in line with paper, ref/alt fractions > 1 removed
+* "Likelihood ratio test" alpha added as command line argument and set to 0.05 (instead of 0.01) by default
 
 
 #####
