@@ -4,7 +4,7 @@ class BigForewordList:
     """ The list only consider the location after the current
     """
     def __init__(self, the_list):
-        self.my_list = the_list
+        self.my_list = list(the_list)
         self.pos = 0
 
 

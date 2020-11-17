@@ -157,7 +157,7 @@ def parse_args():
     # Cutoff/threshold related arguments
     parser.add_argument("--minvar", type=int, default=2,
         help="Min. # variant supporting reads. Default: 2")
-    parser.add_argument("-mvf", "--minvcalarfrac", type=float, default=0.2,
+    parser.add_argument("-mvf", "--minvarfrac", type=float, default=0.2,
         help='Min. fraction of variant supporting reads for a 0/1 genotype. '
             'Default: 0.2')
     parser.add_argument('-a', '--lrt_alpha', default=0.05, type=float,
@@ -325,6 +325,7 @@ def remove_head_end(pileup):
             "name={} pos={} readbase_len={} readbase={} map_q={}" \
         .format(pileup[0], pileup[1], pileup[3], pileup[4], pileup[6])
     )
+    print("Cannot handle this pileup: {}".format(pileup))
     return "???"
 
 
@@ -632,6 +633,7 @@ def read_mpileup_vcf(pileup, my_args):
     readbase_list_with_i = split_readbase(pileup[4], indel_list)
     read_bases_filtered = compress(readbase_list_with_i, MQ_filter)
 
+
     i_filter = ["+" not in i and "-" not in i for i in read_bases_filtered]
     read_base_list_without_i = compress(read_bases_filtered, i_filter)
 
@@ -672,7 +674,7 @@ def read_mpileup_vcf(pileup, my_args):
     sort_by_name(var_names, var_counts, var_MQ, var_BQ)
 
     var_all_str = ",".join(sorted(var_names))
-    read_infos = [(j, base_q[i]) for i, j in enumerate(readbase_list_with_i)]
+    read_infos = [(j, base_q[i]) for i, j in enumerate(read_bases_filtered)]
     return PileupDataStruct(pileup[0], pileup[1], pileup[2], variant_str, r_num,
         v_num, len(var_names), read_infos,
         gt_class=geno_class, var_all=var_all_str)
@@ -707,10 +709,7 @@ def get_geno_class(read_bases_filtered, map_q, base_q, var_counts, var_MQ, var_B
     else:
         read_base_filter = [i in [".", ","] for i in read_bases_filtered]
         sum_ref_map_q = sum(compress(map_q, read_base_filter))
-        try:
-            v_map_q = var_MQ[var_counts.index(second_num)]
-        except:
-            import pdb; pdb.set_trace()
+        v_map_q = var_MQ[var_counts.index(second_num)]
 
         if sum_ref_map_q > v_map_q:
             return 1
@@ -820,7 +819,9 @@ def window_data_one_chromosome(center_pos, gh_list, lamb, gh_list_end,
     # double check edges
     if int(right_edge.pos) < int(left_edge.pos):
         return []
-    return gh_list.filter(lambda x: left_edge.pos <= x.pos <= right_edge.pos)
+    
+    return [i for i in gh_list.my_list \
+        if left_edge.pos <= i.pos <= right_edge.pos]
 
 
 def differential(my_args, gh_list, rel_pileup, queue, worker_id, gh_list_end,
@@ -1124,15 +1125,12 @@ def write_result(queue, args, name):
 
             # from main
             if queue_data.mode == WORKEXIT:
-                # try to write coverage file
                 merged_coverage_list = merge_coverage(list_coverage_buf)
                 if merged_coverage_list:
-                    cov_list = map(lambda z: "\t".join(z),
-                        map(lambda x: map(lambda y: str(y), x), 
-                            merged_coverage_list))
-                    import pdb; pdb.set_trace()
+                    cov_str = '\n'.join(['{}\t{}\t{}'.format(*i) \
+                        for i in merged_coverage_list])
                     with open(cov_file, "a") as fp_cov:
-                        fp_cov.write("\n".join(cov_list))
+                        fp_cov.write(cov_str)
                 if eta == -1:
                     if get_current_cutoff_num(list_var_buf, list_var_tag) > 0:
                         eta = calculate_eta(list_var_buf, list_var_tag,
@@ -1171,7 +1169,7 @@ def write_result(queue, args, name):
                                         queue_data.work_type, i, fp_out, eta,
                                         fp_reasoning, args)
                                 else:
-                                    logging.info("Chr{} worker{} write len=0" \
+                                    logging.info("chr{} worker{} write len=0" \
                                         .format(name, i))
                                 current_handling_worker += 1
                             else:
@@ -1419,7 +1417,7 @@ def main(my_args):
             break
 
         name, start, stop = fasta_j
-        
+
         if my_args.debug:
             print('loading vcf...')
         logging.info('loading vcf...')
@@ -1457,9 +1455,9 @@ def main(my_args):
                     logging.critical(err_str)
                     raise RuntimeError(err_str)
 
-            snp_pos_subset = [i for i in snp_pos \
-                if head - my_args.lamb <= i <= tail + my_args.lamb]
-            
+            snp_pos_subset = snp_pos[(head - my_args.lamb <= snp_pos) \
+                & (tail + my_args.lamb >= snp_pos)]
+
             if my_args.work_num > 1:
                 process_pool.apply_async(control, 
                     (my_args, snp_pos_subset, queue, name, head, tail, woker_id))

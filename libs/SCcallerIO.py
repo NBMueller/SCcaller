@@ -4,21 +4,24 @@
 import os 
 import re
 import time
-import gzip
 from subprocess import Popen, PIPE
 # Additional libraries
-import pysam  # 0.15.1
+from pysam import FastaFile, AlignmentFile  # 0.15.1
 # SCcaller internal libraries
 from libs.OutLineStruct import MULTIPLEGENOTYPE, NOTENOUGHVARIANTS
 
+# Fixed default values
+PHREDSCORE = 33
 
 # ------------------------------------------------------------------------------
 # INPUT 
 # ------------------------------------------------------------------------------
 
 def parse_fasta(fasta_file):
-    """
-    Parse the fasta file into the format [[name,head,tail],[name,head,tail]...]
+    """ Parse the reference fasta file into the format [(name,head,tail), ...].
+    name refers to the contig, head to the index of the first non "N" base, and 
+    tail to the index of the last non "N" base
+
     :param fasta_file_name:
     :return:
     """
@@ -57,16 +60,15 @@ def parse_fasta(fasta_file):
             target_len = len(target)
 
             try:
-                head = re.search('[^N]', target).start() + 1
+                head = re.search('[^N]', target).start()
             except AttributeError:
                 head = target_len
                 tail = 0
             else:
-                for j in range(target_len -1, 0, -1):
+                for j in range(target_len -1, head, -1):
                     if target[j] != 'N':
                         break
-                tail = j + 1 
-
+                tail = j + 1
             my_result.append([name, head, tail])
 
     return my_result
@@ -157,53 +159,45 @@ def data_generator(my_args, name, start, stop, is_bulk):
 
 
 def data_generator_pysam(my_args, name, start, stop, is_bulk):
-    fasta_file = pysam.FastaFile(my_args.fasta)
-    str_ref = fasta_file.fetch(name, start - 1, stop + 1)
+    fasta_file = FastaFile(my_args.fasta)
+    ref = fasta_file.fetch(name, start, stop)
 
     my_arg = {'fastafile': fasta_file, 'stepper': 'samtools',
         'adjust_capq_threshold': 50, 'contig': name, 'start': start,
-        'stop': stop, 'min_mapping_quality': 0 if is_bulk else 40}
+        'stop': stop, 'min_mapping_quality': 0 if is_bulk else 20,
+        'min_base_quality': 13,}
 
     if is_bulk:
-        bam_file = pysam.AlignmentFile(my_args.bulk, 'rb')
+        bam_file = AlignmentFile(my_args.bulk, 'rb')
     else:
-        bam_file = pysam.AlignmentFile(my_args.bam, 'rb')
+        bam_file = AlignmentFile(my_args.bam, 'rb')
 
     read_bases_list = []
     for pileup_column in bam_file.pileup(**my_arg):
-        pos = pileup_column.reference_pos + 1
+        pos = pileup_column.reference_pos
 
-        if pos > stop:
+        if pos >= stop:
             break
         if pos < start:
             continue
 
-        try:
-            read_bases_list = pileup_column \
-                .get_query_sequences(mark_matches=True, mark_ends=True,
-                    add_indels=True)
-        except Exception as e:
-            raise IOError('Pysam crashed! Unexpected Error: {}'.format(e))
+        read_bases_list = pileup_column.get_query_sequences(mark_matches=True,
+            mark_ends=True, add_indels=True)
 
-        read_bases = ''.join(read_bases_list)
-        if len(read_bases) == 0:
+        read_bases = ''.join(read_bases_list).upper()
+        n = pileup_column.get_num_aligned()
+        if n == 0:
             read_bases = '*'
+            base_q = '*'
+            map_q = '*'
+        else:
+            base_q = ''.join([chr(int(i) + PHREDSCORE) \
+                for i in pileup_column.get_query_qualities()])
+            map_q = ''.join([chr(int(i) + PHREDSCORE) \
+                for i in pileup_column.get_mapping_qualities()])
 
-        base_qualities = ''.join([chr(int(i) + 33) \
-            for i in pileup_column.get_query_qualities()])
-        if len(base_qualities) == 0:
-            base_qualities = '*'
+        yield [name, pos, ref[pos - start], str(n), read_bases, base_q, map_q]
 
-        mapq = ''.join([chr(int(i) + 33) \
-            for i in pileup_column.get_mapping_qualities()])
-        if len(mapq) == 0:
-            mapq = '*'
-
-        result = [name, pos, str_ref[pos - start], 
-            str(pileup_column.get_num_aligned()), read_bases.upper(),
-            base_qualities, mapq]
-
-        yield result
     yield None
 
 
