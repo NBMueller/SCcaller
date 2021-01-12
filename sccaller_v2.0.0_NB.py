@@ -145,13 +145,11 @@ def parse_args():
     parser.add_argument("-f", "--fasta", type=str, required=True, 
         help="FASTA file of the reference genome.")
     parser.add_argument("-s", "--snp_in", type=str, required=True,
-        help="Candidate snp input file, either from dbsnp data or heterozygous "
-            "snp (hsnp) data of the bulk, for known heterozygous calls. "
-            "File type: bed (1-based) or vcf.")
+        help="Candidate snp input file for known heterogous call. file type: " 
+            "bed (1-based) or vcf. NOTE: should be sorted in the same order as "
+            "the mpileup file.")
     parser.add_argument("-t", "--snp_type", type=str, required=True,
-        choices=["dbsnp", "hsnp"],
-        help="SNP type for --snp_in. When choosing dbsnp, "
-            "--bulk bulk_bamfile is required.")
+        choices=["dbsnp", "hsnp"], help="SNP type for --snp_in.")
     parser.add_argument("-d", "--wkdir", type=str, default="./",
         help="Work dir. Default: ./")
     # Cutoff/threshold related arguments
@@ -219,13 +217,9 @@ def parse_args():
     os.chdir(args.wkdir)
 
     # check mandatory files
-    if args.snp_type == "dbsnp" and args.bulk == "":
-        raise IOError("{}: When choosing dbsnp, --bulk file is required." \
-            .format(__file__))
     for req_file in (args.bam, args.fasta, args.snp_in):
         if not os.path.exists(req_file):
-            raise IOError('{}: error: file [{}] does not exist.' \
-                .format(__file__, req_file))
+            raise IOError('File does not exist: {}.'.format(req_file))
 
     # check result file
     if args.output == '':
