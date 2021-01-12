@@ -81,8 +81,14 @@ def load_snp_pos(name, snp_info, vcf_file_name):
     """
     snp_pos = []
     curr_info = [i for i in snp_info if i[0] == name]
+
+    if vcf_file_name.endswith('.gz'):
+        file_stream = gzip.open(vcf_file_name, 'rb')
+    else:
+        file_stream = open(vcf_file_name, 'r')
+
     if curr_info:
-        with open(vcf_file_name) as f:
+        with file_stream as f:
             for i in curr_info:
                 f.seek(i[1])
                 lines = f.read(i[2]).splitlines()
