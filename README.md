@@ -41,6 +41,7 @@ pysam(0.15.1) or samtools v.1.9+ (Other versions not tested)
 * FORMAT/BN added to provide more detail why SO is True|False|NA
 * "Likelihood ratio test" updated: calculations in log space and updated to be in line with paper, ref/alt fractions > 1 removed
 * "Likelihood ratio test" alpha added as command line argument and set to 0.05 (instead of 0.01) by default
+* pysam pileup mapping quality filter set back to 20, base quality filter set to 13 (samtools default)
 
 
 #####

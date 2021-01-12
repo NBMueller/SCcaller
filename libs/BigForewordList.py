@@ -8,13 +8,6 @@ class BigForewordList:
         self.pos = 0
 
 
-    def filter(self, func):
-        if self.my_list:
-            return filter(func, self.my_list[self.pos:])
-        else:
-            return []
-
-
     def get_element(self, index):
         if not self.my_list:
             return None

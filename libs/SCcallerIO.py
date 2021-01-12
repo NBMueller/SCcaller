@@ -4,6 +4,7 @@
 import os 
 import re
 import time
+import gzip
 from subprocess import Popen, PIPE
 # Additional libraries
 from pysam import FastaFile, AlignmentFile  # 0.15.1
@@ -113,12 +114,15 @@ def parse_snp_info(my_args):
         import pdb; pdb.set_trace()
     # parse vcf
     else:
-        if file_type == '.gz':
-            raise IOError('SNP file {} needs to be unzipped'.format(snp_file))
         result = []
         name = ''
         head = 0
-        with open(snp_file, 'r') as f:
+        if file_type == '.gz':
+            file_stream = gzip.open(snp_file, 'rb')
+        else:
+            file_stream = open(snp_file, 'r')
+
+        with file_stream as f:
             while True:
                 line = f.readline()
                 if line == '':

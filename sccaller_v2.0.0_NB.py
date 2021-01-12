@@ -434,7 +434,7 @@ def read_mpileup(pileup, rm_minvar, min_mapq, rm_mindepth, is_gh):
         return read_base_without_i
 
     var_names = ["A", "C", "G", "T", "I"]
-    var_counts = [read_base_with_i.count(element) for element in var_names]
+    var_counts = [read_base_with_i.count(i) for i in var_names]
 
     # return reference genome type and for skipping this line
     if np.max(var_counts) < rm_minvar:
@@ -459,7 +459,7 @@ def read_mpileup(pileup, rm_minvar, min_mapq, rm_mindepth, is_gh):
     num_of_i = len(read_base_with_i) - len(read_base_without_i)
     base_q.extend([DEFAULTBASEQUALITY] * num_of_i)
 
-    read_infos = [(j, base_q[i]) for i, j in enumerate(readbase_list_with_i)]
+    read_infos = [(j, base_q[i]) for i, j in enumerate(read_base_with_i)]
 
     return PileupDataStruct(pileup[0], pileup[1], pileup[2], var_max, ref_num,
         var_num, 1, read_infos)
@@ -632,7 +632,6 @@ def read_mpileup_vcf(pileup, my_args):
 
     readbase_list_with_i = split_readbase(pileup[4], indel_list)
     read_bases_filtered = compress(readbase_list_with_i, MQ_filter)
-
 
     i_filter = ["+" not in i and "-" not in i for i in read_bases_filtered]
     read_base_list_without_i = compress(read_bases_filtered, i_filter)
@@ -1128,7 +1127,7 @@ def write_result(queue, args, name):
                 merged_coverage_list = merge_coverage(list_coverage_buf)
                 if merged_coverage_list:
                     cov_str = '\n'.join(['{}\t{}\t{}'.format(*i) \
-                        for i in merged_coverage_list])
+                        for i in merged_coverage_list if len(i) == 3])
                     with open(cov_file, "a") as fp_cov:
                         fp_cov.write(cov_str)
                 if eta == -1:
