@@ -1262,7 +1262,10 @@ def control(my_args, snp_pos_subset, queue, name, head, stop, worker_id):
     total_work = my_stop - my_start
 
     # Pileup of single cell [tumor] sample
-    pileup_source = io.data_generator(my_args, name, my_start, my_stop, False)
+    if my_args.bam.endswith('.mpileup'):
+        pileup_source = io.data_generator_mpileup(my_args.bam)
+    else:
+        pileup_source = io.data_generator(my_args, name, my_start, my_stop, False)
 
     if my_args.bulk != '':
         # Pileup of bulk normal sample
