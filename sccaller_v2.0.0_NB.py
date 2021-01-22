@@ -140,8 +140,10 @@ def parse_args():
                 .format(VERSION)
     )
     # Input related arguments
-    parser.add_argument("-b", "--bam", type=str, required=True, 
-        help="BAM file of a single cell sequencing experiment.")
+    parser.add_argument("-b", "--bam", type=str, default='', 
+        help="BAM file of a single cell. -p or -b are required.")
+    parser.add_argument("-p", "--pileup", type=str, default='', 
+        help="Samtools mpileup file of a single cell. -p or -b are required.")
     parser.add_argument("-f", "--fasta", type=str, required=True, 
         help="FASTA file of the reference genome.")
     parser.add_argument("-s", "--snp_in", type=str, required=True,
@@ -172,7 +174,6 @@ def parse_args():
             "Default: 0.75.")
     parser.add_argument("--null", type=float, default=0.03,
         help="Min allelic fraction considered. Default=0.03.")
-    
     parser.add_argument("--head", type=int, default=1,
         help="First chromosome as sorted as in fasta file to analyze (1-based). "
             "Default: 1")
@@ -217,14 +218,25 @@ def parse_args():
     os.chdir(args.wkdir)
 
     # check mandatory files
-    for req_file in (args.bam, args.fasta, args.snp_in):
+    if args.bam == '' and args.pileup == '':
+        raise IOError('Mpileup (-p) or BAM (-b) input file required.')
+
+    if args.bam != '' and args.pileup != '':
+        print('\n>>>WARNING: BAM and mpileup input exists. Using mpileup<<<\n')
+    
+    for req_file in (args.bam, args.pileup, args.fasta, args.snp_in):
+        if req_file == '':
+            continue
         if not os.path.exists(req_file):
             raise IOError('File does not exist: {}.'.format(req_file))
 
     # check result file
     if args.output == '':
-        args.output = '{}.calls.{}' \
-            .format(os.path.splitext(args.bam)[0], args.format)
+        if args.pileup:
+            base_name = os.path.splitext(args.pileup)[0]
+        else:
+            base_name = os.path.splitext(args.bam)[0]
+        args.output = '{}.calls.{}'.format(base_name, args.format)
 
     if os.path.exists(args.output):
         print('\n>>>WARNING: Output file {} exists and will be overwritten<<<\n' \
@@ -1262,8 +1274,8 @@ def control(my_args, snp_pos_subset, queue, name, head, stop, worker_id):
     total_work = my_stop - my_start
 
     # Pileup of single cell [tumor] sample
-    if my_args.bam.endswith('.mpileup'):
-        pileup_source = io.data_generator_mpileup(my_args.bam)
+    if my_args.pileup:
+        pileup_source = io.data_generator_mpileup(my_args.pileup)
     else:
         pileup_source = io.data_generator(my_args, name, my_start, my_stop, False)
 

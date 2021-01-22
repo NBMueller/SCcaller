@@ -211,6 +211,15 @@ def data_generator_pysam(my_args, name, start, stop, is_bulk):
     yield None
 
 
+def data_generator_mpileup(pileup_file):
+    pileup_stream = open(pileup_file, 'r')
+    for line in pileup_stream:
+        el = line.strip().split('\t')
+        base_q = ''.join([chr(int(i) + PHREDSCORE) for i in [40] * int(el[3])])
+        yield [el[0], int(el[1]), el[2], el[3], el[4], base_q, base_q]
+    yield None
+
+
 def data_generator_samtools(my_args, name, start, stop, is_bulk):
     if is_bulk:
         cmd_str = 'samtools mpileup -C50  -f {} -s {} -r {}:{}-{}' \
@@ -305,7 +314,7 @@ def write_vcf(my_args, version='2.0.0_NB'):
             'Description="Allelic depths for the ref and alt alleles">\n' \
         '##FORMAT=<ID=BI,Number=1,Type=Float,Description="Amplification Bias">\n' \
         '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">\n' \
-        '##FORMAT=<ID=FPL,Number=4,Type=Integer,' \
+        '##FORMAT=<ID=PL,Number=G,Type=Integer,' \
             'Description="Phred scaled likelihood of: REF/REF, REF/ALT, ALT/ALT">\n' \
         .format(time.strftime('%Y:%m:%d-%H:%M:%S', time.localtime()), version,
             my_args.fasta, MULTIPLEGENOTYPE, NOTENOUGHVARIANTS, my_args.minvar)
@@ -322,7 +331,10 @@ def write_vcf(my_args, version='2.0.0_NB'):
     head_str += etas
     os.remove(eta_file)
 
-    sc_name = os.path.basename(my_args.bam).split('.')[0]
+    if my_args.pileup:
+        sc_name = os.path.basename(my_args.pileup).split('.')[0]
+    else:
+        sc_name = os.path.basename(my_args.bam).split('.')[0]
     head_str += '#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}\n' \
         .format(sc_name)
 
